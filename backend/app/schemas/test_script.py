@@ -102,3 +102,25 @@ class TestScriptUpdate(BaseModel):
     script_content: str | None = None
     business_domain: str | None = None
     tags: list[str] | None = None
+    change_summary: str | None = Field(default=None, max_length=1000)
+
+
+class TestScriptRejectBody(BaseModel):
+    rejection_comment: str = Field(min_length=1, max_length=2000)
+
+
+class BulkExportRequest(BaseModel):
+    script_ids: list[UUID] = Field(min_length=1)
+    format: str = Field(default="playwright")
+
+
+class ExportResultRead(BaseModel):
+    sas_url: str
+    filename: str
+    format: str
+
+
+class BulkExportResultRead(BaseModel):
+    sas_url: str
+    filename: str
+    script_count: int
