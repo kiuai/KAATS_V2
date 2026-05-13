@@ -865,39 +865,618 @@ def _make_extract_sap_ui5_fields(ctx: ToolContext) -> StructuredTool:
 # ── Generation tools ──────────────────────────────────────────────────────────
 
 
-def build_generation_tools(db_session: Any, memory: Any) -> list:  # type: ignore[type-arg]
-    """Build tools for GenerationAgent."""
-    from langchain.tools import tool
+def build_generation_tools(ctx: ToolContext) -> list[StructuredTool]:
+    """Build test-generation tools for GenerationAgent."""
+    return [
+        _make_load_requirement(ctx),
+        _make_check_requirement_quality(ctx),
+        _make_generate_test_cases(ctx),
+        _make_format_as_playwright(ctx),
+        _make_format_as_selenium(ctx),
+        _make_format_as_pytest(ctx),
+        _make_format_as_robot(ctx),
+        _make_format_as_gherkin(ctx),
+        _make_validate_script_syntax(ctx),
+        _make_save_test_script(ctx),
+    ]
 
-    @tool
-    async def save_script_draft(  # type: ignore[misc]
-        title: str, content: str, format: str = "playwright_python"
-    ) -> str:
-        """Save a generated test script draft to working memory."""
-        memory.append("generated_scripts", {"title": title, "content": content, "format": format})
-        return f"Script draft saved: {title}"
 
-    @tool
-    def validate_playwright_syntax(script_content: str) -> str:  # type: ignore[misc]
-        """Validate Python/Playwright script syntax using ast.parse."""
-        import ast
+def _make_load_requirement(ctx: ToolContext) -> StructuredTool:
+    async def load_requirement(requirement_id: str) -> str:
+        """Load a Requirement from the database and return it as JSON."""
+        from uuid import UUID as _UUID
+
+        from app.models.requirement import Requirement
+
         try:
-            ast.parse(script_content)
-            if "playwright" not in script_content.lower() and "async" not in script_content:
-                return "warning: script does not appear to use Playwright async API"
-            return "valid"
-        except SyntaxError as exc:
-            return f"syntax_error: {exc}"
+            req_id = _UUID(requirement_id)
+        except ValueError:
+            return f"error: invalid UUID {requirement_id!r}"
 
-    @tool
-    async def decompose_requirement(requirement_text: str) -> str:  # type: ignore[misc]
-        """Decompose a requirement into discrete, ordered test steps."""
-        return (
-            "Use the call_ai tool to decompose this requirement: "
-            f"'{requirement_text[:500]}' into numbered test steps."
+        req = await ctx.db.get(Requirement, req_id)
+        if req is None:
+            return f"error: requirement {requirement_id} not found"
+        if req.company_id != ctx.company_id:
+            return f"error: requirement {requirement_id} not accessible"
+        if req.is_deleted:
+            return f"error: requirement {requirement_id} has been deleted"
+
+        return json.dumps({
+            "id": str(req.id),
+            "title": req.title,
+            "description": req.description,
+            "source_type": req.source_type,
+            "business_domain": req.business_domain or "",
+            "priority": req.priority,
+            "status": req.status,
+            "tags": req.tags or [],
+        })
+
+    return StructuredTool.from_function(
+        coroutine=load_requirement,
+        name="load_requirement",
+        description=(
+            "Load a Requirement record from the database by UUID. "
+            "Returns JSON with all fields or an error message."
+        ),
+    )
+
+
+def _make_check_requirement_quality(ctx: ToolContext) -> StructuredTool:
+    async def check_requirement_quality(requirement_json: str) -> str:
+        """
+        Score a requirement on completeness, testability, clarity, and atomicity.
+        Returns JSON: {score, issues, suggestions, is_testable}.
+        """
+        from pydantic import BaseModel as _BM
+
+        class _QualityReport(_BM):
+            score: int
+            issues: list[str]
+            suggestions: list[str]
+            is_testable: bool
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a senior QA analyst evaluating software requirements. "
+                    "Score and analyse the given requirement."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Requirement JSON:\n{requirement_json[:3_000]}\n\n"
+                    "Evaluate this requirement on four dimensions (0-25 each, total 0-100):\n"
+                    "1. Completeness: Does it describe WHAT needs to happen?\n"
+                    "2. Testability: Can you write a clear pass/fail test for it?\n"
+                    "3. Clarity: Is it free of ambiguity and jargon?\n"
+                    "4. Atomicity: Does it describe a single testable behaviour?\n\n"
+                    "Return the total score, a list of issues found, "
+                    "a list of improvement suggestions, and whether the requirement "
+                    "is testable as-is (true/false)."
+                ),
+            },
+        ]
+        try:
+            result = await ctx.ai_client.complete_structured(messages, _QualityReport)
+            return result.model_dump_json()
+        except Exception as exc:
+            log.warning("generation.quality_check_failed", error=str(exc))
+            # Fallback: assume testable so we don't block the pipeline
+            return json.dumps({
+                "score": 50,
+                "issues": [f"Quality check failed: {exc}"],
+                "suggestions": [],
+                "is_testable": True,
+            })
+
+    return StructuredTool.from_function(
+        coroutine=check_requirement_quality,
+        name="check_requirement_quality",
+        description=(
+            "Score a requirement on completeness, testability, clarity, and atomicity "
+            "(0-100). Returns JSON with score, issues, suggestions, and is_testable flag."
+        ),
+    )
+
+
+def _make_generate_test_cases(ctx: ToolContext) -> StructuredTool:
+    async def generate_test_cases(
+        requirement_json: str, quality_report_json: str
+    ) -> str:
+        """
+        Generate structured test cases from a requirement using AI.
+        Returns a JSON object {test_cases: [...]}.
+        """
+        from pydantic import BaseModel as _BM
+        from typing import Literal as _Lit
+
+        from app.ai.prompts.generation_prompts import REQUIREMENT_TO_TEST_CASES_PROMPT
+
+        class _Step(_BM):
+            step_number: int
+            action: str
+            locator_hint: str
+            input_value: str
+            expected_result: str
+
+        class _Case(_BM):
+            test_case_id: str
+            title: str
+            description: str
+            preconditions: list[str]
+            test_steps: list[_Step]
+            expected_outcome: str
+            test_type: _Lit["positive", "negative", "boundary", "integration"]
+            priority: _Lit["critical", "high", "medium", "low"]
+
+        class _CaseList(_BM):
+            test_cases: list[_Case]
+
+        # Build system context from memory
+        system_context = ctx.memory.get("system_context", "")
+
+        user_content = (
+            REQUIREMENT_TO_TEST_CASES_PROMPT
+            .replace("{requirement_json}", requirement_json[:3_000])
+            .replace("{quality_report_json}", quality_report_json[:1_000])
+            .replace("{system_context}", system_context or "No additional context provided.")
         )
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert software test analyst. Generate comprehensive "
+                    "test cases from the given requirement. Use neutral, industry-agnostic "
+                    "language. Never assume specific UI technology."
+                ),
+            },
+            {"role": "user", "content": user_content},
+        ]
+        try:
+            result = await ctx.ai_client.complete_structured(
+                messages, _CaseList, max_tokens=4_096
+            )
+            return result.model_dump_json()
+        except Exception as exc:
+            log.warning("generation.test_cases_failed", error=str(exc))
+            return f"error: {exc}"
 
-    return [save_script_draft, validate_playwright_syntax, decompose_requirement]
+    return StructuredTool.from_function(
+        coroutine=generate_test_cases,
+        name="generate_test_cases",
+        description=(
+            "Generate structured test cases (positive, negative, boundary) from a "
+            "requirement. Args: requirement_json, quality_report_json. "
+            "Returns JSON {test_cases: [...]}."
+        ),
+    )
+
+
+def _make_format_as_playwright(ctx: ToolContext) -> StructuredTool:
+    async def format_as_playwright(test_cases_json: str, base_url: str) -> str:
+        """Convert test cases to Playwright TypeScript (.ts). Returns complete file content."""
+        from app.ai.prompts.generation_prompts import FORMAT_SYSTEM_PROMPT
+
+        system = FORMAT_SYSTEM_PROMPT.format(format_name="Playwright TypeScript")
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": (
+                    f"Convert these test cases to Playwright TypeScript:\n\n"
+                    f"Base URL: {base_url or 'Use BASE_URL env var'}\n\n"
+                    f"Test cases:\n{test_cases_json[:6_000]}\n\n"
+                    "Requirements:\n"
+                    "- Import from '@playwright/test'\n"
+                    "- Use `const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';`\n"
+                    "- Use role-based locators (getByRole, getByLabel) over CSS selectors\n"
+                    "- Use test.describe() to group test cases for the same requirement\n"
+                    "- Each test case becomes a separate test() block\n"
+                    "- Add await expect() assertions after each major action\n"
+                    "- Output ONLY the TypeScript file content"
+                ),
+            },
+        ]
+        try:
+            return await ctx.ai_client.complete(messages, max_tokens=4_096)
+        except Exception as exc:
+            log.warning("generation.format_playwright_failed", error=str(exc))
+            return f"error: {exc}"
+
+    return StructuredTool.from_function(
+        coroutine=format_as_playwright,
+        name="format_as_playwright",
+        description=(
+            "Convert test cases JSON to Playwright TypeScript. "
+            "Args: test_cases_json, base_url. Returns complete .ts file content."
+        ),
+    )
+
+
+def _make_format_as_selenium(ctx: ToolContext) -> StructuredTool:
+    async def format_as_selenium(test_cases_json: str, base_url: str) -> str:
+        """Convert test cases to Selenium Python (pytest-selenium). Returns .py file content."""
+        from app.ai.prompts.generation_prompts import FORMAT_SYSTEM_PROMPT
+
+        system = FORMAT_SYSTEM_PROMPT.format(format_name="Selenium Python (pytest-selenium)")
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": (
+                    f"Convert these test cases to Selenium Python with pytest:\n\n"
+                    f"Base URL: {base_url or 'Use BASE_URL env var'}\n\n"
+                    f"Test cases:\n{test_cases_json[:6_000]}\n\n"
+                    "Requirements:\n"
+                    "- Import: pytest, selenium.webdriver, By, WebDriverWait, "
+                    "expected_conditions as EC, os\n"
+                    "- Use `BASE_URL = os.environ.get('BASE_URL', 'http://localhost:3000')`\n"
+                    "- Provide a @pytest.fixture for the WebDriver\n"
+                    "- Use explicit waits (WebDriverWait) not time.sleep\n"
+                    "- Group test cases in a class, one method per test case\n"
+                    "- Output ONLY the Python file content"
+                ),
+            },
+        ]
+        try:
+            return await ctx.ai_client.complete(messages, max_tokens=4_096)
+        except Exception as exc:
+            log.warning("generation.format_selenium_failed", error=str(exc))
+            return f"error: {exc}"
+
+    return StructuredTool.from_function(
+        coroutine=format_as_selenium,
+        name="format_as_selenium",
+        description=(
+            "Convert test cases JSON to Selenium Python (pytest-selenium). "
+            "Args: test_cases_json, base_url. Returns complete .py file content."
+        ),
+    )
+
+
+def _make_format_as_pytest(ctx: ToolContext) -> StructuredTool:
+    async def format_as_pytest(test_cases_json: str, base_url: str) -> str:
+        """Convert test cases to pure pytest. Returns .py file content."""
+        from app.ai.prompts.generation_prompts import FORMAT_SYSTEM_PROMPT
+
+        system = FORMAT_SYSTEM_PROMPT.format(format_name="pytest")
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": (
+                    f"Convert these test cases to pytest (no UI automation framework):\n\n"
+                    f"Base URL: {base_url or 'Use BASE_URL env var'}\n\n"
+                    f"Test cases:\n{test_cases_json[:6_000]}\n\n"
+                    "Requirements:\n"
+                    "- Import pytest, requests, os\n"
+                    "- Use `BASE_URL = os.environ.get('BASE_URL', 'http://localhost:3000')`\n"
+                    "- Where UI interaction is implied, add a comment '# UI action: ...' "
+                    "and assert the HTTP response or state change\n"
+                    "- Use pytest.mark.parametrize for boundary/data-driven cases\n"
+                    "- Output ONLY the Python file content"
+                ),
+            },
+        ]
+        try:
+            return await ctx.ai_client.complete(messages, max_tokens=4_096)
+        except Exception as exc:
+            log.warning("generation.format_pytest_failed", error=str(exc))
+            return f"error: {exc}"
+
+    return StructuredTool.from_function(
+        coroutine=format_as_pytest,
+        name="format_as_pytest",
+        description=(
+            "Convert test cases JSON to pure pytest. "
+            "Args: test_cases_json, base_url. Returns complete .py file content."
+        ),
+    )
+
+
+def _make_format_as_robot(ctx: ToolContext) -> StructuredTool:
+    async def format_as_robot(test_cases_json: str, base_url: str) -> str:
+        """Convert test cases to Robot Framework. Returns .robot file content."""
+        from app.ai.prompts.generation_prompts import FORMAT_SYSTEM_PROMPT
+
+        system = FORMAT_SYSTEM_PROMPT.format(format_name="Robot Framework")
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": (
+                    f"Convert these test cases to Robot Framework (.robot):\n\n"
+                    f"Base URL: {base_url or 'Use BASE_URL env var'}\n\n"
+                    f"Test cases:\n{test_cases_json[:6_000]}\n\n"
+                    "Requirements:\n"
+                    "- Include *** Settings ***, *** Variables ***, *** Test Cases ***, "
+                    "*** Keywords *** sections\n"
+                    "- Use SeleniumLibrary\n"
+                    "- Define ${BASE_URL} in *** Variables *** as %{BASE_URL=http://localhost:3000}\n"
+                    "- Create reusable keywords for common actions\n"
+                    "- Each test case becomes a Robot test case\n"
+                    "- Output ONLY the .robot file content"
+                ),
+            },
+        ]
+        try:
+            return await ctx.ai_client.complete(messages, max_tokens=4_096)
+        except Exception as exc:
+            log.warning("generation.format_robot_failed", error=str(exc))
+            return f"error: {exc}"
+
+    return StructuredTool.from_function(
+        coroutine=format_as_robot,
+        name="format_as_robot",
+        description=(
+            "Convert test cases JSON to Robot Framework. "
+            "Args: test_cases_json, base_url. Returns complete .robot file content."
+        ),
+    )
+
+
+def _make_format_as_gherkin(ctx: ToolContext) -> StructuredTool:
+    async def format_as_gherkin(test_cases_json: str, base_url: str) -> str:
+        """Convert test cases to Gherkin .feature file. Returns .feature file content."""
+        from app.ai.prompts.generation_prompts import FORMAT_SYSTEM_PROMPT
+
+        system = FORMAT_SYSTEM_PROMPT.format(format_name="Gherkin (BDD)")
+        messages = [
+            {"role": "system", "content": system},
+            {
+                "role": "user",
+                "content": (
+                    f"Convert these test cases to a Gherkin .feature file:\n\n"
+                    f"Base URL context: {base_url or 'N/A'}\n\n"
+                    f"Test cases:\n{test_cases_json[:6_000]}\n\n"
+                    "Requirements:\n"
+                    "- Start with a Feature: block with a brief description\n"
+                    "- Use a Background: block for common preconditions\n"
+                    "- Each positive test case → Scenario\n"
+                    "- Data-driven/boundary cases → Scenario Outline with Examples table\n"
+                    "- Steps must use Given/When/Then/And/But keywords\n"
+                    "- Use neutral business language throughout\n"
+                    "- Output ONLY the .feature file content"
+                ),
+            },
+        ]
+        try:
+            return await ctx.ai_client.complete(messages, max_tokens=4_096)
+        except Exception as exc:
+            log.warning("generation.format_gherkin_failed", error=str(exc))
+            return f"error: {exc}"
+
+    return StructuredTool.from_function(
+        coroutine=format_as_gherkin,
+        name="format_as_gherkin",
+        description=(
+            "Convert test cases JSON to a Gherkin .feature file with Scenario Outline "
+            "where applicable. Args: test_cases_json, base_url. Returns .feature content."
+        ),
+    )
+
+
+def _make_validate_script_syntax(ctx: ToolContext) -> StructuredTool:
+    def validate_script_syntax(script_content: str, format: str) -> str:
+        """
+        Validate a generated script for syntax errors.
+        Returns JSON: {valid: bool, errors: [str]}.
+        """
+        import ast
+        import subprocess
+        import tempfile
+        import os
+
+        errors: list[str] = []
+        fmt = format.lower().replace("-", "_").replace(" ", "_")
+
+        if fmt in ("pytest", "selenium"):
+            try:
+                ast.parse(script_content)
+            except SyntaxError as exc:
+                errors.append(f"SyntaxError at line {exc.lineno}: {exc.msg}")
+
+        elif fmt == "playwright":
+            # Try TypeScript compiler if available
+            try:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".ts", mode="w", delete=False, encoding="utf-8"
+                ) as f:
+                    f.write(script_content)
+                    tmppath = f.name
+                result = subprocess.run(
+                    ["tsc", "--noEmit", "--target", "ES2020",
+                     "--lib", "ES2020,DOM", tmppath],
+                    capture_output=True, text=True, timeout=30,
+                )
+                os.unlink(tmppath)
+                if result.returncode != 0:
+                    raw = (result.stdout + result.stderr).strip()
+                    errors.extend(raw.splitlines()[:10])
+            except FileNotFoundError:
+                # tsc not on PATH — do lightweight structural check
+                for required in ("import", "test(", "expect("):
+                    if required not in script_content:
+                        errors.append(
+                            f"warning: generated file may not be valid Playwright TS "
+                            f"(missing '{required}')"
+                        )
+            except subprocess.TimeoutExpired:
+                errors.append("tsc validation timed out")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"tsc check error: {exc}")
+
+        elif fmt == "robot_framework":
+            for section in ("*** Test Cases ***", "*** Settings ***"):
+                if section not in script_content:
+                    errors.append(f"Missing required Robot Framework section: {section}")
+
+        elif fmt == "gherkin":
+            for keyword in ("Feature:", "Scenario"):
+                if keyword not in script_content:
+                    errors.append(f"Missing required Gherkin keyword: {keyword}")
+            for step_kw in ("Given", "When", "Then"):
+                if step_kw not in script_content:
+                    errors.append(f"Missing BDD step keyword: {step_kw}")
+
+        valid = len(errors) == 0
+        if not valid:
+            log.debug(
+                "generation.validation_failed",
+                format=fmt,
+                error_count=len(errors),
+                run_id=str(ctx.agent_run_id),
+            )
+        return json.dumps({"valid": valid, "errors": errors})
+
+    return StructuredTool.from_function(
+        func=validate_script_syntax,
+        name="validate_script_syntax",
+        description=(
+            "Validate generated script syntax. "
+            "Args: script_content (str), format ('playwright'|'selenium'|'pytest'|"
+            "'robot_framework'|'gherkin'). "
+            "Returns JSON {valid: bool, errors: [str]}."
+        ),
+    )
+
+
+def _make_save_test_script(ctx: ToolContext) -> StructuredTool:
+    async def save_test_script(
+        requirement_id: str,
+        title: str,
+        test_cases_json: str,
+        rendered_content: str,
+        export_format: str,
+    ) -> str:
+        """
+        Persist a TestScript with its TestCase and TestStep records.
+        Returns the new script ID (UUID string).
+        """
+        from uuid import UUID as _UUID
+
+        from app.config import get_settings
+        from app.models.enums import ExportFormat, TestScriptStatus
+        from app.models.test_script import TestCase, TestScript, TestStep
+
+        settings = get_settings()
+
+        # Parse test cases
+        test_cases: list[dict] = []
+        try:
+            data = json.loads(test_cases_json)
+            if isinstance(data, dict):
+                test_cases = data.get("test_cases", [])
+            elif isinstance(data, list):
+                test_cases = data
+        except Exception:
+            pass
+
+        # Map format string to ExportFormat enum value
+        fmt_map: dict[str, str] = {
+            "playwright": ExportFormat.PLAYWRIGHT.value,
+            "playwright_typescript": ExportFormat.PLAYWRIGHT.value,
+            "selenium": ExportFormat.SELENIUM.value,
+            "pytest": ExportFormat.PYTEST.value,
+            "robot_framework": ExportFormat.ROBOT_FRAMEWORK.value,
+            "gherkin": ExportFormat.GHERKIN.value,
+            "manual_steps": ExportFormat.MANUAL_STEPS.value,
+        }
+        db_format = fmt_map.get(export_format.lower(), ExportFormat.PLAYWRIGHT.value)
+
+        req_id: _UUID | None = None
+        if requirement_id:
+            try:
+                req_id = _UUID(requirement_id)
+            except ValueError:
+                pass
+
+        user_id_str: str | None = ctx.memory.get("triggered_by_user_id")
+        created_by: _UUID | None = None
+        if user_id_str:
+            try:
+                created_by = _UUID(user_id_str)
+            except ValueError:
+                pass
+
+        try:
+            script = TestScript(
+                requirement_id=req_id,
+                system_id=ctx.system_id,
+                company_id=ctx.company_id,
+                title=title[:500],
+                script_content=test_cases_json[:65_000],
+                rendered_content=rendered_content[:65_000],
+                export_format=db_format,
+                ai_generated=True,
+                ai_model_version=settings.azure_openai_deployment_name,
+                status=TestScriptStatus.DRAFT.value,
+                created_by=created_by,
+            )
+            ctx.db.add(script)
+            await ctx.db.flush()
+
+            # Persist structured TestCase + TestStep records
+            for i, tc in enumerate(test_cases):
+                if not isinstance(tc, dict):
+                    continue
+                case = TestCase(
+                    script_id=script.id,
+                    name=tc.get("title", f"Test Case {i + 1}")[:500],
+                    description=tc.get("description", ""),
+                    order_index=i,
+                )
+                ctx.db.add(case)
+                await ctx.db.flush()
+
+                for step_data in tc.get("test_steps", []):
+                    if not isinstance(step_data, dict):
+                        continue
+                    hint = step_data.get("locator_hint", "")
+                    value = step_data.get("input_value", "")
+                    detail = " — ".join(filter(None, [hint, value])) or step_data.get("action", "")
+                    step = TestStep(
+                        case_id=case.id,
+                        step_number=step_data.get("step_number", 0),
+                        action=step_data.get("action", "action")[:100],
+                        description=detail[:2_000],
+                        expected_outcome=step_data.get("expected_result"),
+                        parameters=(
+                            {"locator_hint": hint, "input_value": value}
+                            if hint or value
+                            else None
+                        ),
+                    )
+                    ctx.db.add(step)
+
+                await ctx.db.flush()
+
+            script_id = str(script.id)
+            ctx.memory.append("generated_script_ids", script_id)
+            ctx.memory.increment("scripts_generated_count")
+            log.info(
+                "generation.script_saved",
+                script_id=script_id,
+                format=db_format,
+                test_case_count=len(test_cases),
+            )
+            return script_id
+        except Exception as exc:
+            log.warning("generation.save_script_failed", title=title[:50], error=str(exc))
+            return f"error: {exc}"
+
+    return StructuredTool.from_function(
+        coroutine=save_test_script,
+        name="save_test_script",
+        description=(
+            "Persist a generated test script to the database with all its test cases "
+            "and steps. Args: requirement_id, title, test_cases_json, rendered_content, "
+            "export_format. Returns the new TestScript ID."
+        ),
+    )
 
 
 # ── Execution tools ───────────────────────────────────────────────────────────
