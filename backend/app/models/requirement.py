@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Integer, SmallInteger, String, Text
+from sqlalchemy import ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,7 +18,7 @@ class Requirement(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "requirements"
 
     system_id: Mapped[uuid.UUID] = mapped_column(
-        UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True
+        UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("systems.id"), nullable=False, index=True
     )
     company_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True

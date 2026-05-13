@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,7 +19,7 @@ class TestExecution(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "test_executions"
 
     script_id: Mapped[uuid.UUID] = mapped_column(
-        UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True
+        UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_scripts.id"), nullable=False, index=True
     )
     system_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True

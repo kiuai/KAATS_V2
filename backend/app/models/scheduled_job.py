@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -38,7 +38,7 @@ class ScheduledJobRun(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "scheduled_job_runs"
 
     job_id: Mapped[uuid.UUID] = mapped_column(
-        UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True
+        UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("scheduled_jobs.id"), nullable=False, index=True
     )
     agent_run_id: Mapped[uuid.UUID | None] = mapped_column(UNIQUEIDENTIFIER(as_uuid=True))
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="enqueued")

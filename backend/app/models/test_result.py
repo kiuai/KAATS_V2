@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,7 +18,7 @@ class TestStepResult(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "test_step_results"
 
     execution_id: Mapped[uuid.UUID] = mapped_column(
-        UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True
+        UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_executions.id"), nullable=False, index=True
     )
     step_id: Mapped[uuid.UUID] = mapped_column(UNIQUEIDENTIFIER(as_uuid=True), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -41,7 +41,7 @@ class EvidenceScreenshot(Base, UUIDPrimaryKeyMixin):
     execution_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True
     )
-    step_result_id: Mapped[uuid.UUID | None] = mapped_column(UNIQUEIDENTIFIER(as_uuid=True))
+    step_result_id: Mapped[uuid.UUID | None] = mapped_column(UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_step_results.id"))
     company_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), nullable=False, index=True
     )
