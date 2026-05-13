@@ -1,54 +1,91 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import structlog
-from sqlalchemy.ext.asyncio import AsyncSession
+from langchain.tools import StructuredTool
 
-from app.agents.base import AbstractAgent
-from app.agents.tool_registry import build_generation_tools
+from app.agents.base import AgentOutput, BaseAgent
+from app.agents.tool_registry import ToolContext, build_generation_tools, build_tools
+from app.ai.client import AzureOpenAIClient
 from app.ai.prompts.generation_prompts import GENERATION_SYSTEM_PROMPT
+from app.blob import get_blob_service
+
+if TYPE_CHECKING:
+    from app.auth.azure_ad import CurrentUser
+    from app.models.agent_run import AgentRun
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger(__name__)
 
 
-class GenerationAgent(AbstractAgent):
+class GenerationAgent(BaseAgent):
+    """
+    Generates executable test scripts from structured requirements using Azure OpenAI.
+    No browser required — pure LLM + tool-call loop.
+
+    Expected ``config`` keys:
+        requirement_ids  (list[str])  — UUIDs of requirements to generate scripts for
+        target_formats   (list[str])  — e.g. ["playwright_python", "gherkin"]
+    """
+
     agent_type = "generation"
 
     def __init__(
         self,
-        company_id: UUID,
-        system_id: UUID,
-        db: AsyncSession,
-        requirement_ids: list[UUID] | None = None,
-        target_formats: list[str] | None = None,
+        run: "AgentRun",
+        db: "AsyncSession",
+        current_user: "CurrentUser | None",
+        config: dict[str, Any],
     ) -> None:
-        super().__init__(company_id=company_id, system_id=system_id)
-        self._db = db
-        self._requirement_ids = requirement_ids
-        self._target_formats = target_formats or ["playwright_python"]
+        super().__init__(run, db, current_user, config)
 
-    def _system_prompt(self) -> str:
+    # ── BaseAgent interface ───────────────────────────────────────────────────
+
+    async def get_tools(self) -> list[StructuredTool]:
+        ai_client = AzureOpenAIClient(
+            agent_run_id=self.run.id,
+            company_id=self.run.company_id,
+        )
+        try:
+            blob_client = get_blob_service()
+        except Exception:  # noqa: BLE001
+            blob_client = None  # type: ignore[assignment]
+
+        ctx = ToolContext(
+            db=self.db,
+            blob_client=blob_client,
+            company_id=self.run.company_id,
+            system_id=self.run.system_id,  # type: ignore[arg-type]
+            agent_run_id=self.run.id,
+            memory=self.memory,
+            ai_client=ai_client,
+        )
+        shared = build_tools(ctx)
+        generation = build_generation_tools(self.db, self.memory)
+        return shared + generation
+
+    async def get_system_prompt(self) -> str:
         return GENERATION_SYSTEM_PROMPT
 
-    def _build_tools(self) -> list:
-        return build_generation_tools(self._db, self.memory)
-
-    async def _execute(self, **kwargs: Any) -> dict[str, Any]:
-        tools = self._build_tools()
-        executor = self._build_executor_with_tools(tools)
+    async def run_agent(self) -> AgentOutput:
+        req_ids: list[str] = self.config.get("requirement_ids", [])
+        target_formats: list[str] = self.config.get("target_formats", ["playwright_python"])
 
         req_ids_str = (
-            ", ".join(str(r) for r in self._requirement_ids)
-            if self._requirement_ids
-            else "all requirements for the system"
+            ", ".join(req_ids) if req_ids else "all requirements for the system"
         )
-        formats_str = ", ".join(self._target_formats)
+        formats_str = ", ".join(target_formats)
 
-        log.info("generation_agent.started", system_id=str(self.system_id), run_id=str(self.run_id))
+        log.info(
+            "generation_agent.started",
+            system_id=str(self.run.system_id),
+            requirement_count=len(req_ids),
+            run_id=str(self.run.id),
+        )
 
-        result = await executor.ainvoke({
+        await self._executor.ainvoke({  # type: ignore[union-attr]
             "input": (
                 f"Generate test scripts for the following requirements: {req_ids_str}. "
                 f"Target formats: {formats_str}. "
@@ -57,30 +94,17 @@ class GenerationAgent(AbstractAgent):
             )
         })
 
-        scripts = self.memory.get("pending_scripts", [])
-        log.info("generation_agent.completed", scripts_generated=len(scripts), run_id=str(self.run_id))
+        scripts = self.memory.get("generated_scripts", [])
 
-        return {"status": "completed", "scripts_generated": len(scripts)}
-
-    def _build_executor_with_tools(self, tools: list) -> Any:
-        from langchain_openai import AzureChatOpenAI
-        from langchain.agents import create_react_agent, AgentExecutor
-        from langchain import hub
-
-        settings = self._settings
-        llm = AzureChatOpenAI(
-            azure_endpoint=str(settings.azure_openai_endpoint),
-            api_key=settings.azure_openai_api_key,
-            azure_deployment=settings.azure_openai_deployment_name,
-            api_version="2024-02-01",
-            temperature=0,
+        log.info(
+            "generation_agent.completed",
+            scripts_generated=len(scripts),
+            run_id=str(self.run.id),
         )
-        prompt = hub.pull("hwchase17/react")
-        agent = create_react_agent(llm, tools, prompt)
-        return AgentExecutor(
-            agent=agent,
-            tools=tools,
-            max_iterations=settings.max_agent_steps,
-            handle_parsing_errors=True,
-            verbose=not settings.is_production,
+        return AgentOutput(
+            output_summary={
+                "scripts_generated": len(scripts),
+                "requirement_ids": req_ids,
+                "target_formats": target_formats,
+            }
         )

@@ -9,9 +9,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy.orm import selectinload
+
 from app.cosmos import get_agent_runs_container
 from app.models.agent_run import AgentRun
-from app.schemas.agent_run import AgentRunRead
+from app.schemas.agent_run import AgentRunRead, AgentRunWithToolCalls
 
 
 class AgentRunService:
@@ -58,16 +60,23 @@ class AgentRunService:
 
     async def list_runs(
         self,
-        company_id: UUID,
+        company_id: UUID | None = None,
+        system_id: UUID | None = None,
         agent_type: str | None = None,
         run_status: str | None = None,
     ) -> list[AgentRunRead]:
-        query = select(AgentRun).where(AgentRun.company_id == company_id)
+        query = select(AgentRun)
+        if company_id is not None:
+            query = query.where(AgentRun.company_id == company_id)
+        if system_id is not None:
+            query = query.where(AgentRun.system_id == system_id)
         if agent_type:
             query = query.where(AgentRun.agent_type == agent_type)
         if run_status:
             query = query.where(AgentRun.status == run_status)
-        result = await self._db.execute(query.order_by(AgentRun.started_at.desc()))
+        result = await self._db.execute(
+            query.order_by(AgentRun.created_at.desc())
+        )
         return [AgentRunRead.model_validate(r) for r in result.scalars().all()]
 
     async def get_run(self, run_id: UUID) -> AgentRunRead:
@@ -76,15 +85,26 @@ class AgentRunService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
         return AgentRunRead.model_validate(run)
 
+    async def get_run_with_tool_calls(self, run_id: UUID) -> AgentRunWithToolCalls:
+        result = await self._db.execute(
+            select(AgentRun)
+            .where(AgentRun.id == run_id)
+            .options(selectinload(AgentRun.tool_calls))
+        )
+        run = result.scalar_one_or_none()
+        if not run:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
+        return AgentRunWithToolCalls.model_validate(run)
+
     async def get_steps_from_cosmos(self, run_id: UUID) -> dict:
-        """Fetch agent step log from Cosmos DB using the run's service_bus_message_id as doc key."""
+        """Fetch the agent step log from Cosmos DB. The doc id is the run_id."""
         run = await self._db.get(AgentRun, run_id)
-        if not run or not run.service_bus_message_id:
-            return {"steps": []}
+        if not run:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
         container = get_agent_runs_container()
         try:
-            doc = await container.read_item(run.service_bus_message_id, partition_key=str(run.company_id))
-            return {"steps": doc.get("steps", [])}
+            doc = await container.read_item(str(run_id), partition_key=str(run.company_id))
+            return {"steps": doc.get("steps", []), "status": doc.get("status")}
         except Exception:
             return {"steps": []}
 
@@ -92,10 +112,10 @@ class AgentRunService:
         run = await self._db.get(AgentRun, run_id)
         if not run:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-        if run.status != "running":
+        if run.status not in ("pending", "running"):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Only running agents can be cancelled",
+                detail="Only pending or running agent runs can be cancelled",
             )
         run.status = "cancelled"
         await self._db.flush()
@@ -108,20 +128,19 @@ class AgentRunService:
             return
 
         last_index = 0
-        while run.status == "running":
+        container = get_agent_runs_container()
+        while run.status in ("pending", "running"):
             await asyncio.sleep(2)
             await self._db.refresh(run)
-            if run.service_bus_message_id:
-                container = get_agent_runs_container()
-                try:
-                    doc = await container.read_item(
-                        run.service_bus_message_id, partition_key=str(run.company_id)
-                    )
-                    steps = doc.get("steps", [])
-                    for step in steps[last_index:]:
-                        yield {"type": "step", "data": step}
-                    last_index = len(steps)
-                except Exception:
-                    pass
+            try:
+                doc = await container.read_item(
+                    str(run_id), partition_key=str(run.company_id)
+                )
+                steps = doc.get("steps", [])
+                for step in steps[last_index:]:
+                    yield {"type": "step", "data": step}
+                last_index = len(steps)
+            except Exception:
+                pass
 
         yield {"type": "complete", "data": {"status": run.status}}

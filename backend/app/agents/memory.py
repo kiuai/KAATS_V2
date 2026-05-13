@@ -41,6 +41,17 @@ class WorkingMemory:
             out[k] = list(v) if isinstance(v, set) else v
         return out
 
+    def serialize(self) -> dict[str, Any]:
+        """JSON-serialisable snapshot — alias for snapshot()."""
+        return self.snapshot()
+
+    def clear(self) -> None:
+        self._store.clear()
+
     @classmethod
     def from_snapshot(cls, data: dict[str, Any]) -> "WorkingMemory":
         return cls(initial=data)
+
+
+# Alias used by the new BaseAgent API
+AgentMemory = WorkingMemory
