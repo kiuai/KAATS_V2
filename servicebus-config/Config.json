@@ -2,7 +2,7 @@
   "UserConfig": {
     "Namespaces": [
       {
-        "Name": "emulatorNs1",
+        "Name": "sbemulatorns",
         "Queues": [],
         "Topics": [
           {
@@ -55,6 +55,9 @@
           }
         ]
       }
-    ]
+    ],
+    "Logging": {
+      "Type": "File"
+    }
   }
 }
