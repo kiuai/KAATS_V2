@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.permissions import any_authenticated, can_run_agents
-from app.dependencies import get_db, get_current_user_id
+from app.dependencies import get_db, get_current_user_id, get_current_company_id
 from app.schemas.agent_run import AgentRunRead, AgentTriggerRequest
 from app.services.agent_run_service import AgentRunService
 
@@ -23,10 +23,12 @@ async def trigger_crawl(
     db: AsyncSession = Depends(get_db),
 ) -> AgentRunRead:
     user_id = get_current_user_id(request)
+    company_id = get_current_company_id(request)
     return await AgentRunService(db).trigger(
         agent_type="crawl",
         system_id=system_id,
-        triggered_by=user_id,
+        triggered_by_user_id=user_id,
+        company_id=company_id,
     )
 
 
@@ -38,12 +40,15 @@ async def trigger_generation(
     db: AsyncSession = Depends(get_db),
 ) -> AgentRunRead:
     user_id = get_current_user_id(request)
+    company_id = get_current_company_id(request)
     return await AgentRunService(db).trigger(
         agent_type="generation",
         system_id=system_id,
-        triggered_by=user_id,
+        triggered_by_user_id=user_id,
+        company_id=company_id,
         requirement_ids=body.requirement_ids,
         target_formats=body.target_formats,
+        input_config=body.input_config,
     )
 
 
@@ -54,20 +59,24 @@ async def trigger_execution(
     db: AsyncSession = Depends(get_db),
 ) -> AgentRunRead:
     user_id = get_current_user_id(request)
+    company_id = get_current_company_id(request)
     return await AgentRunService(db).trigger(
         agent_type="execution",
         script_id=script_id,
-        triggered_by=user_id,
+        triggered_by_user_id=user_id,
+        company_id=company_id,
     )
 
 
 @router.get("/agent_runs", response_model=list[AgentRunRead], dependencies=[any_authenticated])
 async def list_agent_runs(
+    request: Request,
     agent_type: str | None = None,
-    status: str | None = None,
+    run_status: str | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[AgentRunRead]:
-    return await AgentRunService(db).list_runs(agent_type=agent_type, status=status)
+    company_id = get_current_company_id(request)
+    return await AgentRunService(db).list_runs(company_id=company_id, agent_type=agent_type, run_status=run_status)
 
 
 @router.get("/agent_runs/{run_id}", response_model=AgentRunRead, dependencies=[any_authenticated])

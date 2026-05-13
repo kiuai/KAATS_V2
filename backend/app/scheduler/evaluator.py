@@ -38,7 +38,7 @@ async def _evaluate_due_jobs() -> None:
             result = await db.execute(
                 select(ScheduledJob)
                 .where(
-                    ScheduledJob.is_enabled == True,  # noqa: E712
+                    ScheduledJob.is_active == True,  # noqa: E712
                     ScheduledJob.next_run_at <= now,
                 )
                 .order_by(ScheduledJob.next_run_at.asc())
@@ -87,7 +87,7 @@ async def handle_job_completion(
     else:
         job.consecutive_failures += 1
         if job.consecutive_failures >= job.max_failures:
-            job.is_enabled = False
+            job.is_active = False
             log.warning(
                 "scheduler.job.auto_disabled",
                 job_id=job_id,

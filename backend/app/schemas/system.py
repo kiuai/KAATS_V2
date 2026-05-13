@@ -3,17 +3,23 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import AnyHttpUrl, BaseModel, Field
+from pydantic import BaseModel, Field
+
+from app.models.enums import SystemType
 
 
 class SystemRead(BaseModel):
     id: UUID
     company_id: UUID
-    owner_id: UUID
     name: str
-    base_url: str
+    description: str | None
     system_type: str
-    status: str
+    base_url: str | None
+    system_manager_id: UUID | None
+    industry_domain: str | None
+    is_active: bool
+    is_deleted: bool
+    settings: dict | None
     created_at: datetime
     updated_at: datetime
 
@@ -22,16 +28,20 @@ class SystemRead(BaseModel):
 
 class SystemCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    base_url: AnyHttpUrl
-    system_type: str = Field(default="web_app", pattern=r"^(web_app|api|mobile_web|desktop_web|other)$")
-    crawl_config: dict | None = None
-    auth_config: dict | None = None
+    description: str | None = Field(default=None, max_length=2048)
+    system_type: SystemType = SystemType.WEB_APPLICATION
+    base_url: str | None = Field(default=None, max_length=2048)
+    system_manager_id: UUID | None = None
+    industry_domain: str | None = Field(default=None, max_length=255)
+    settings: dict | None = None
 
 
 class SystemUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    base_url: AnyHttpUrl | None = None
-    system_type: str | None = None
-    status: str | None = None
-    crawl_config: dict | None = None
-    auth_config: dict | None = None
+    description: str | None = None
+    system_type: SystemType | None = None
+    base_url: str | None = None
+    system_manager_id: UUID | None = None
+    industry_domain: str | None = None
+    is_active: bool | None = None
+    settings: dict | None = None

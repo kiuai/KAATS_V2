@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, TypeVar
 
 import structlog
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncConnection,
     AsyncEngine,
@@ -12,8 +13,11 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.sql import Select
 
 from app.config import get_settings
+
+_T = TypeVar("_T")
 
 log = structlog.get_logger(__name__)
 
@@ -88,6 +92,22 @@ async def get_db(company_id: str | None = None) -> AsyncGenerator[AsyncSession, 
         except Exception:
             await session.rollback()
             raise
+
+
+# Alias for FastAPI dependencies that prefer this name
+get_async_session = get_db
+
+
+def scoped_select(model: type[_T], company_id: uuid.UUID) -> Select:
+    """
+    Return a SELECT statement pre-filtered to a specific company.
+
+    Usage::
+
+        stmt = scoped_select(Requirement, company_id).where(Requirement.status == "active")
+        result = await db.scalars(stmt)
+    """
+    return select(model).where(model.company_id == company_id)  # type: ignore[attr-defined]
 
 
 async def init_db() -> None:

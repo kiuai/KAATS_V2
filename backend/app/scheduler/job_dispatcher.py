@@ -22,7 +22,7 @@ async def dispatch_job(db: AsyncSession, job: ScheduledJob) -> ScheduledJobRun:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     run = ScheduledJobRun(
         job_id=job.id,
-        status="enqueued",
+        status="triggered",
         scheduled_for=now,
     )
     db.add(run)

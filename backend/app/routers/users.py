@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.permissions import any_authenticated, can_manage_company
 from app.dependencies import get_db, get_current_user_id
-from app.schemas.user import RoleAssign, UserCreate, UserRead, UserUpdate
+from app.schemas.user import UserCreate, UserRead, UserRoleAssign, UserRoleRead, UserUpdate
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -36,11 +36,12 @@ async def update_user(
     return await UserService(db).update_user(user_id, body)
 
 
-@router.put("/{user_id}/role", response_model=UserRead, dependencies=[can_manage_company])
+@router.post("/{user_id}/roles", response_model=UserRoleRead, status_code=201, dependencies=[can_manage_company])
 async def assign_role(
-    user_id: UUID, body: RoleAssign, db: AsyncSession = Depends(get_db)
-) -> UserRead:
-    return await UserService(db).assign_role(user_id, body)
+    user_id: UUID, body: UserRoleAssign, request: Request, db: AsyncSession = Depends(get_db)
+) -> UserRoleRead:
+    granted_by = get_current_user_id(request)
+    return await UserService(db).assign_role(user_id, body, granted_by=granted_by)
 
 
 @router.delete("/{user_id}", status_code=204, response_model=None, dependencies=[can_manage_company])

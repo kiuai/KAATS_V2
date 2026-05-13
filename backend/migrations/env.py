@@ -11,11 +11,13 @@ from app.config import get_settings
 from app.models.base import Base
 import app.models.tenant  # noqa: F401
 import app.models.user  # noqa: F401
+import app.models.role  # noqa: F401
 import app.models.system  # noqa: F401
 import app.models.requirement  # noqa: F401
 import app.models.test_script  # noqa: F401
 import app.models.test_cycle  # noqa: F401
 import app.models.test_result  # noqa: F401
+import app.models.execution_evidence  # noqa: F401
 import app.models.crawl_job  # noqa: F401
 import app.models.scheduled_job  # noqa: F401
 import app.models.agent_run  # noqa: F401

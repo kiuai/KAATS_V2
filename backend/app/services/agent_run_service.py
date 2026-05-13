@@ -21,18 +21,27 @@ class AgentRunService:
     async def trigger(
         self,
         agent_type: str,
-        triggered_by: UUID,
+        triggered_by_user_id: UUID,
+        company_id: UUID,
         system_id: UUID | None = None,
         script_id: UUID | None = None,
         requirement_ids: list[UUID] | None = None,
         target_formats: list[str] | None = None,
+        input_config: dict | None = None,
     ) -> AgentRunRead:
         from app.worker.service_bus_worker import publish_agent_job
 
         run = AgentRun(
             agent_type=agent_type,
+            company_id=company_id,
             system_id=system_id,
-            triggered_by=triggered_by,
+            triggered_by_user_id=triggered_by_user_id,
+            trigger_type="manual",
+            input_config=input_config or {
+                "script_id": str(script_id) if script_id else None,
+                "requirement_ids": [str(r) for r in (requirement_ids or [])],
+                "target_formats": target_formats,
+            },
             started_at=datetime.now(timezone.utc).replace(tzinfo=None),
             status="running",
         )
@@ -48,13 +57,16 @@ class AgentRunService:
         return AgentRunRead.model_validate(run)
 
     async def list_runs(
-        self, agent_type: str | None = None, status: str | None = None
+        self,
+        company_id: UUID,
+        agent_type: str | None = None,
+        run_status: str | None = None,
     ) -> list[AgentRunRead]:
-        query = select(AgentRun)
+        query = select(AgentRun).where(AgentRun.company_id == company_id)
         if agent_type:
             query = query.where(AgentRun.agent_type == agent_type)
-        if status:
-            query = query.where(AgentRun.status == status)
+        if run_status:
+            query = query.where(AgentRun.status == run_status)
         result = await self._db.execute(query.order_by(AgentRun.started_at.desc()))
         return [AgentRunRead.model_validate(r) for r in result.scalars().all()]
 
@@ -65,12 +77,13 @@ class AgentRunService:
         return AgentRunRead.model_validate(run)
 
     async def get_steps_from_cosmos(self, run_id: UUID) -> dict:
+        """Fetch agent step log from Cosmos DB using the run's service_bus_message_id as doc key."""
         run = await self._db.get(AgentRun, run_id)
-        if not run or not run.cosmos_doc_id:
+        if not run or not run.service_bus_message_id:
             return {"steps": []}
         container = get_agent_runs_container()
         try:
-            doc = await container.read_item(run.cosmos_doc_id, partition_key=str(run.company_id))
+            doc = await container.read_item(run.service_bus_message_id, partition_key=str(run.company_id))
             return {"steps": doc.get("steps", [])}
         except Exception:
             return {"steps": []}
@@ -84,7 +97,7 @@ class AgentRunService:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Only running agents can be cancelled",
             )
-        run.status = "failed"
+        run.status = "cancelled"
         await self._db.flush()
 
     async def stream_steps(self, run_id: UUID) -> AsyncGenerator[dict, None]:
@@ -98,11 +111,11 @@ class AgentRunService:
         while run.status == "running":
             await asyncio.sleep(2)
             await self._db.refresh(run)
-            if run.cosmos_doc_id:
+            if run.service_bus_message_id:
                 container = get_agent_runs_container()
                 try:
                     doc = await container.read_item(
-                        run.cosmos_doc_id, partition_key=str(run.company_id)
+                        run.service_bus_message_id, partition_key=str(run.company_id)
                     )
                     steps = doc.get("steps", [])
                     for step in steps[last_index:]:

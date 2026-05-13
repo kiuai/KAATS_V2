@@ -5,6 +5,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.models.enums import RequirementPriority, RequirementSourceType, RequirementStatus
+
 
 class RequirementRead(BaseModel):
     id: UUID
@@ -12,9 +14,14 @@ class RequirementRead(BaseModel):
     company_id: UUID
     title: str
     description: str
+    source_type: str
+    source_reference: str | None
+    business_domain: str | None
+    priority: str
     status: str
-    priority: int
-    source: str
+    tags: list | None
+    created_by: UUID | None
+    is_deleted: bool
     created_at: datetime
     updated_at: datetime
 
@@ -24,11 +31,18 @@ class RequirementRead(BaseModel):
 class RequirementCreate(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     description: str = Field(min_length=1)
-    priority: int = Field(default=2, ge=1, le=3)
+    source_type: RequirementSourceType = RequirementSourceType.MANUAL
+    source_reference: str | None = Field(default=None, max_length=500)
+    business_domain: str | None = Field(default=None, max_length=255)
+    priority: RequirementPriority = RequirementPriority.MEDIUM
+    tags: list[str] | None = None
 
 
 class RequirementUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = None
-    status: str | None = Field(default=None, pattern=r"^(draft|approved|deprecated)$")
-    priority: int | None = Field(default=None, ge=1, le=3)
+    source_reference: str | None = None
+    business_domain: str | None = None
+    priority: RequirementPriority | None = None
+    status: RequirementStatus | None = None
+    tags: list[str] | None = None

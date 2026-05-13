@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -15,20 +14,21 @@ class SystemService:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def list_systems(self) -> list[SystemRead]:
+    async def list_systems(self, company_id: UUID) -> list[SystemRead]:
         result = await self._db.execute(
-            select(System).where(System.is_deleted.is_(False))
+            select(System).where(
+                System.company_id == company_id,
+                System.is_deleted == False,  # noqa: E712
+            )
         )
         return [SystemRead.model_validate(s) for s in result.scalars().all()]
 
-    async def create_system(self, body: SystemCreate, owner_id: UUID) -> SystemRead:
+    async def create_system(self, body: SystemCreate, company_id: UUID, created_by: UUID) -> SystemRead:
         data = body.model_dump()
-        data["owner_id"] = owner_id
-        data["base_url"] = str(data["base_url"])
-        if data.get("crawl_config"):
-            data["crawl_config"] = json.dumps(data["crawl_config"])
-        if data.get("auth_config"):
-            data["auth_config"] = json.dumps(data["auth_config"])
+        data["company_id"] = company_id
+        data["system_manager_id"] = data.pop("system_manager_id", None) or created_by
+        if "system_type" in data and hasattr(data["system_type"], "value"):
+            data["system_type"] = data["system_type"].value
         system = System(**data)
         self._db.add(system)
         await self._db.flush()
@@ -45,12 +45,8 @@ class SystemService:
         if not system or system.is_deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System not found")
         data = body.model_dump(exclude_none=True)
-        if "base_url" in data:
-            data["base_url"] = str(data["base_url"])
-        if "crawl_config" in data:
-            data["crawl_config"] = json.dumps(data["crawl_config"])
-        if "auth_config" in data:
-            data["auth_config"] = json.dumps(data["auth_config"])
+        if "system_type" in data and hasattr(data["system_type"], "value"):
+            data["system_type"] = data["system_type"].value
         for field, value in data.items():
             setattr(system, field, value)
         await self._db.flush()

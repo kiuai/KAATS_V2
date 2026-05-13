@@ -26,33 +26,20 @@ class EvidenceService:
             )
             .order_by(EvidenceScreenshot.step_number)
         )
-        screenshots = result.scalars().all()
-        return [
-            EvidenceScreenshotRead(
-                **{k: v for k, v in s.__dict__.items() if not k.startswith("_")},
-                sas_url=generate_sas_url(s.blob_path),
-            )
-            for s in screenshots
-        ]
+        return [EvidenceScreenshotRead.model_validate(s) for s in result.scalars().all()]
 
     async def get_screenshot_with_sas(self, screenshot_id: UUID) -> EvidenceScreenshotRead:
         s = await self._db.get(EvidenceScreenshot, screenshot_id)
         if not s or s.deleted_at:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screenshot not found")
-        return EvidenceScreenshotRead(
-            **{k: v for k, v in s.__dict__.items() if not k.startswith("_")},
-            sas_url=generate_sas_url(s.blob_path),
-        )
+        return EvidenceScreenshotRead.model_validate(s)
 
-    async def get_report_sas_url(self, execution_id: UUID) -> str:
-        from app.models.agent_run import AgentRun
-        result = await self._db.execute(
-            select(AgentRun).where(AgentRun.execution_id == execution_id)
-        )
-        run = result.scalar_one_or_none()
-        if not run or not run.evidence_pdf_path:
+    async def get_report_sas_url(self, execution_run_id: UUID) -> str:
+        from app.models.execution_evidence import ExecutionRun
+        run = await self._db.get(ExecutionRun, execution_run_id)
+        if not run or not run.evidence_pdf_blob_url:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence report not found")
-        return generate_sas_url(run.evidence_pdf_path)
+        return generate_sas_url(run.evidence_pdf_blob_url)
 
     async def verify_integrity(self, execution_id: UUID) -> EvidenceVerifyResult:
         result = await self._db.execute(
