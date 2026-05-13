@@ -2,7 +2,7 @@
   "UserConfig": {
     "Namespaces": [
       {
-        "Name": "kaats",
+        "Name": "emulatorNs1",
         "Queues": [],
         "Topics": [
           {
@@ -40,7 +40,7 @@
           {
             "Name": "result-events",
             "Properties": {
-              "DefaultMessageTimeToLive": "PT2H",
+              "DefaultMessageTimeToLive": "PT1H",
               "MaxSizeInMegabytes": 1024
             },
             "Subscriptions": [
