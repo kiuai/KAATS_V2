@@ -101,6 +101,9 @@ class Settings(BaseSettings):
     evidence_retention_days: int = 365
     evidence_sas_ttl_hours: int = 1
 
+    # ── Worker ────────────────────────────────────────────────────────────────
+    max_concurrent_agents: int = 3
+
     # ── Feature flags ─────────────────────────────────────────────────────────
     openapi_enabled: bool = True  # disabled in production via override
 

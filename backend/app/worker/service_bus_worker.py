@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import signal
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -20,6 +21,12 @@ log = structlog.get_logger(__name__)
 # Service Bus delivers up to this many times before dead-lettering automatically.
 # We mirror this on our side to skip poisoned messages quickly.
 _MAX_DELIVERY_COUNT = 3
+
+# Concurrency semaphore — initialised in worker_loop() from settings.
+_semaphore: asyncio.Semaphore | None = None
+
+# Shutdown flag set by SIGTERM handler.
+_shutdown_event: asyncio.Event = asyncio.Event()
 
 
 # ── Legacy helper (kept for backward compat with AgentRunService) ─────────────
@@ -198,18 +205,81 @@ def _build_agent(
 # ── Worker loop ───────────────────────────────────────────────────────────────
 
 
+def _install_sigterm_handler() -> None:
+    """
+    Register SIGTERM and SIGINT handlers that set _shutdown_event so the worker
+    drains in-flight tasks before exiting.
+    """
+    def _handle(signum: int, frame: object) -> None:  # noqa: ARG001
+        log.info("worker.shutdown_signal_received", signal=signum)
+        _shutdown_event.set()
+
+    signal.signal(signal.SIGTERM, _handle)
+    signal.signal(signal.SIGINT, _handle)
+
+
+async def _process_with_semaphore(
+    message: ServiceBusReceivedMessage,
+    receiver: object,
+) -> None:
+    """Acquire the concurrency semaphore, process, then release."""
+    assert _semaphore is not None  # initialised before entering the loop
+    async with _semaphore:
+        delivery_count: int = message.delivery_count or 0
+        if delivery_count >= _MAX_DELIVERY_COUNT:
+            log.warning(
+                "worker.dead_lettering",
+                delivery_count=delivery_count,
+                message_id=str(message.message_id),
+            )
+            await receiver.dead_letter_message(  # type: ignore[union-attr]
+                message,
+                reason="MaxDeliveryCountExceeded",
+                error_description=f"Failed after {delivery_count} attempts",
+            )
+            return
+
+        try:
+            await _process_message(message)
+            await receiver.complete_message(message)  # type: ignore[union-attr]
+        except Exception:
+            log.exception(
+                "worker.message_processing_failed",
+                message_id=str(message.message_id),
+                delivery_count=delivery_count,
+            )
+            await receiver.abandon_message(message)  # type: ignore[union-attr]
+
+
 async def worker_loop() -> None:
     """
-    Subscribe to the ai-jobs topic and process messages in a continuous loop.
+    Subscribe to the ai-jobs topic and process messages concurrently.
+
+    Concurrency is bounded by ``settings.max_concurrent_agents`` (default 3).
+
+    Graceful shutdown:
+    - On SIGTERM / SIGINT the shutdown event is set.
+    - The receiver loop stops accepting new messages.
+    - In-flight tasks are awaited before the process exits.
 
     Dead-letter behaviour:
     - Messages with delivery_count >= _MAX_DELIVERY_COUNT are dead-lettered
       immediately rather than allowing infinite retries.
     - All other processing errors abandon the message (Service Bus will retry
-      with a back-off up to its own MaxDeliveryCount).
+      with its own back-off up to MaxDeliveryCount).
     """
+    global _semaphore
+
     settings = get_settings()
-    log.info("worker.loop.started", topic=settings.service_bus_topic_ai_jobs)
+    _semaphore = asyncio.Semaphore(settings.max_concurrent_agents)
+    _install_sigterm_handler()
+    log.info(
+        "worker.loop.started",
+        topic=settings.service_bus_topic_ai_jobs,
+        max_concurrent=settings.max_concurrent_agents,
+    )
+
+    pending_tasks: set[asyncio.Task] = set()
 
     async with ServiceBusClient.from_connection_string(
         settings.azure_service_bus_connection_string
@@ -220,27 +290,22 @@ async def worker_loop() -> None:
         )
         async with receiver:
             async for message in receiver:
-                delivery_count: int = message.delivery_count or 0
-                if delivery_count >= _MAX_DELIVERY_COUNT:
-                    log.warning(
-                        "worker.dead_lettering",
-                        delivery_count=delivery_count,
-                        message_id=str(message.message_id),
-                    )
-                    await receiver.dead_letter_message(
-                        message,
-                        reason="MaxDeliveryCountExceeded",
-                        error_description=f"Failed after {delivery_count} attempts",
-                    )
-                    continue
-
-                try:
-                    await _process_message(message)
-                    await receiver.complete_message(message)
-                except Exception:
-                    log.exception(
-                        "worker.message_processing_failed",
-                        message_id=str(message.message_id),
-                        delivery_count=delivery_count,
-                    )
+                if _shutdown_event.is_set():
+                    # Stop consuming new messages; abandon the current one so
+                    # another instance can pick it up.
                     await receiver.abandon_message(message)
+                    log.info("worker.shutting_down_no_new_messages")
+                    break
+
+                task = asyncio.create_task(
+                    _process_with_semaphore(message, receiver)
+                )
+                pending_tasks.add(task)
+                task.add_done_callback(pending_tasks.discard)
+
+    # Drain: wait for all in-flight tasks to finish before exiting.
+    if pending_tasks:
+        log.info("worker.draining_in_flight_tasks", count=len(pending_tasks))
+        await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+    log.info("worker.loop.stopped")
