@@ -49,6 +49,7 @@ dependencies = [
 
     # Scheduling & retry
     "croniter>=2.0",
+    "pytz>=2024.1",
     "tenacity>=8.3",
 
     # HTTP & utilities

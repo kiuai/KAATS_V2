@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import AnyHttpUrl, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     azure_client_secret: str
 
     # ── Azure OpenAI ──────────────────────────────────────────────────────────
-    azure_openai_endpoint: AnyHttpUrl
+    azure_openai_endpoint: str
     azure_openai_api_key: str
     azure_openai_deployment_name: str = "gpt-4o"
 
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
         )
 
     # ── Azure Cosmos DB ───────────────────────────────────────────────────────
-    azure_cosmos_endpoint: AnyHttpUrl
+    azure_cosmos_endpoint: str
     azure_cosmos_key: str
     azure_cosmos_database: str = "kaats"
 
