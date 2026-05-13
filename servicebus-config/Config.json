@@ -1,0 +1,60 @@
+{
+  "UserConfig": {
+    "Namespaces": [
+      {
+        "Name": "kaats",
+        "Queues": [],
+        "Topics": [
+          {
+            "Name": "ai-jobs",
+            "Properties": {
+              "DefaultMessageTimeToLive": "PT1H",
+              "MaxSizeInMegabytes": 1024
+            },
+            "Subscriptions": [
+              {
+                "Name": "execution-worker",
+                "Properties": {
+                  "LockDuration": "PT1M",
+                  "MaxDeliveryCount": 5
+                }
+              }
+            ]
+          },
+          {
+            "Name": "crawl-jobs",
+            "Properties": {
+              "DefaultMessageTimeToLive": "PT1H",
+              "MaxSizeInMegabytes": 1024
+            },
+            "Subscriptions": [
+              {
+                "Name": "crawl-worker",
+                "Properties": {
+                  "LockDuration": "PT1M",
+                  "MaxDeliveryCount": 5
+                }
+              }
+            ]
+          },
+          {
+            "Name": "result-events",
+            "Properties": {
+              "DefaultMessageTimeToLive": "PT2H",
+              "MaxSizeInMegabytes": 1024
+            },
+            "Subscriptions": [
+              {
+                "Name": "api-listener",
+                "Properties": {
+                  "LockDuration": "PT30S",
+                  "MaxDeliveryCount": 3
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

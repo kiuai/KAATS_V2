@@ -110,11 +110,16 @@ services:
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
     environment:
       ACCEPT_EULA: "Y"
+      SQL_SERVER: sqlserver
+      MSSQL_SA_PASSWORD: KaatsDevPass!2026
     ports:
       - "5672:5672"
       - "9354:9354"
     volumes:
-      - servicebus_data:/data
+      - ./servicebus-config/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json
+    depends_on:
+      sqlserver:
+        condition: service_healthy
     networks:
       - kaats
 
@@ -134,7 +139,6 @@ services:
 volumes:
   sqldata:
   azurite_data:
-  servicebus_data:
 
 networks:
   kaats:
