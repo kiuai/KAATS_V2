@@ -1,49 +1,88 @@
 from __future__ import annotations
 
-from uuid import UUID
+import json
+from uuid import UUID, uuid4
 
 import structlog
-from fastapi import Request, Response
-from jose import JWTError, jwt
+from fastapi import HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 log = structlog.get_logger(__name__)
 
-_UNAUTHENTICATED_PATHS = frozenset({"/health", "/api/v1/auth/login", "/api/v1/auth/callback"})
+_UNAUTHENTICATED_PATHS = frozenset({
+    "/health",
+    "/api/v1/auth/login",
+    "/api/v1/auth/callback",
+    "/api/v1/auth/token",
+})
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
     """
-    Validates the Bearer JWT on every request (except public paths).
-    Extracts user_id, company_id, enterprise_id, and roles from claims
-    and stores them on request.state for downstream use.
+    Runs on every request (except public paths):
+
+    1. Generates / propagates a Correlation ID (X-Correlation-ID header).
+    2. Validates the Bearer JWT via AzureADTokenValidator (JWKS in prod,
+       skip-signature in dev).
+    3. Extracts identity and tenant claims and stores them on request.state
+       so route handlers and FastAPI dependencies can consume them.
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        # ── Correlation ID ────────────────────────────────────────────────────
+        correlation_id = request.headers.get("X-Correlation-ID") or str(uuid4())
+        request.state.correlation_id = correlation_id
+
         path = request.url.path
         if path in _UNAUTHENTICATED_PATHS or path.startswith("/docs") or path.startswith("/openapi"):
-            return await call_next(request)
+            response = await call_next(request)
+            response.headers["X-Correlation-ID"] = correlation_id
+            return response
 
+        # ── Token extraction ──────────────────────────────────────────────────
         token = self._extract_token(request)
         if token is None:
-            return self._unauthorized("Missing Authorization header")
+            return self._unauthorized("Missing Authorization header", correlation_id)
 
-        try:
-            claims = self._decode_token(token)
-        except JWTError as exc:
-            log.warning("auth.jwt_invalid", error=str(exc))
-            return self._unauthorized("Invalid or expired token")
+        # ── JWT validation via AzureADTokenValidator ──────────────────────────
+        from app.auth.azure_ad import get_validator
 
+        validator = get_validator()
         try:
-            request.state.user_id = UUID(claims["sub"])
-            request.state.company_id = UUID(claims.get("kaats_company_id", ""))
-            request.state.enterprise_id = UUID(claims.get("kaats_enterprise_id", ""))
+            claims = await validator.validate(token)
+        except HTTPException as exc:
+            log.warning("auth.jwt_invalid", correlation_id=correlation_id, detail=exc.detail)
+            return self._unauthorized(exc.detail, correlation_id)
+
+        # ── Populate request.state ────────────────────────────────────────────
+        try:
+            # 'oid' is the stable Entra object ID; fall back to 'sub' for dev tokens.
+            oid: str = claims.get("oid") or claims.get("sub", "")
+            request.state.azure_oid = oid
+            request.state.email = (
+                claims.get("preferred_username")
+                or claims.get("email")
+                or claims.get("upn")
+                or ""
+            )
+
+            # user_id is the OID when present, otherwise sub.
+            request.state.user_id = UUID(oid) if oid else None
+
+            raw_company = claims.get("kaats_company_id")
+            request.state.company_id = UUID(raw_company) if raw_company else None
+
+            raw_enterprise = claims.get("kaats_enterprise_id")
+            request.state.enterprise_id = UUID(raw_enterprise) if raw_enterprise else None
+
             request.state.roles = claims.get("kaats_roles", [])
-        except (ValueError, KeyError) as exc:
-            log.warning("auth.claims_malformed", error=str(exc))
-            return self._unauthorized("Malformed token claims")
+        except (ValueError, AttributeError) as exc:
+            log.warning("auth.claims_malformed", error=str(exc), correlation_id=correlation_id)
+            return self._unauthorized("Malformed token claims", correlation_id)
 
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
 
     @staticmethod
     def _extract_token(request: Request) -> str | None:
@@ -53,18 +92,14 @@ class TenantMiddleware(BaseHTTPMiddleware):
         return None
 
     @staticmethod
-    def _decode_token(token: str) -> dict:
-        from app.config import get_settings
-
-        settings = get_settings()
-        # In production this validates signature against Entra ID JWKS.
-        # options={"verify_signature": False} is for local dev without a real Entra token.
-        options = {"verify_signature": settings.is_production}
-        return jwt.decode(token, settings.secret_key, algorithms=["HS256", "RS256"], options=options)
-
-    @staticmethod
-    def _unauthorized(detail: str) -> Response:
-        import json
-
-        body = json.dumps({"error": {"code": "UNAUTHENTICATED", "message": detail}})
-        return Response(content=body, status_code=401, media_type="application/json")
+    def _unauthorized(detail: str, correlation_id: str) -> Response:
+        body = json.dumps({
+            "error": {
+                "code": "UNAUTHENTICATED",
+                "message": detail,
+                "correlation_id": correlation_id,
+            }
+        })
+        response = Response(content=body, status_code=401, media_type="application/json")
+        response.headers["X-Correlation-ID"] = correlation_id
+        return response
