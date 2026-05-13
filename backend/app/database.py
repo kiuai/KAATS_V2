@@ -63,16 +63,19 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
-async def set_tenant_context(conn: AsyncConnection, company_id: str) -> None:
+async def set_tenant_context(conn: AsyncConnection, company_id: Any) -> None:
     """Set SESSION_CONTEXT for RLS filtering. Must be called on every connection."""
+    # SQL Server requires all sp_set_session_context params to use @name=value form.
+    # The value must be a string (sql_variant); cast UUID if needed.
+    value = str(company_id) if not isinstance(company_id, str) else company_id
     await conn.execute(
         text(
             "EXEC sp_set_session_context "
             "@key = N'tenant_id', "
-            ":value, "
+            "@value = :value, "
             "@read_only = 1"
         ),
-        {"value": company_id},
+        {"value": value},
     )
 
 

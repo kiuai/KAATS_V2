@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from jose import jwt
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,7 +106,84 @@ async def exchange_token(body: TokenRequest) -> TokenResponse:
 
 # Keep the old path as an alias so existing integrations don't break.
 @router.post("/callback", response_model=TokenResponse, include_in_schema=False)
-async def auth_callback(body: TokenRequest) -> TokenResponse:
+async def auth_callback(
+    body: TokenRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    settings = get_settings()
+
+    # Dev shortcut: mint a local HS256 token so local dev works without real
+    # Azure AD credentials.  Disabled in production.
+    if not settings.is_production and body.code == "dev":
+        _DEV_OID = "00000000-0000-0000-0000-000000000001"
+        _DEV_EMAIL = "dev@kaats.local"
+        _DEV_ENTERPRISE_ID = UUID("00000000-0000-0000-0000-000000000010")
+        _DEV_COMPANY_ID = UUID("00000000-0000-0000-0000-000000000020")
+
+        from app.models.tenant import Company, Enterprise
+        from app.models.user import User
+
+        now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        # Ensure dev Enterprise exists.
+        enterprise = await db.get(Enterprise, _DEV_ENTERPRISE_ID)
+        if enterprise is None:
+            enterprise = Enterprise(
+                id=_DEV_ENTERPRISE_ID,
+                name="Dev Enterprise",
+                slug="dev-enterprise",
+                is_active=True,
+            )
+            db.add(enterprise)
+            await db.flush()
+
+        # Ensure dev Company exists.
+        company = await db.get(Company, _DEV_COMPANY_ID)
+        if company is None:
+            company = Company(
+                id=_DEV_COMPANY_ID,
+                enterprise_id=_DEV_ENTERPRISE_ID,
+                name="Dev Company",
+                slug="dev-company",
+                is_active=True,
+            )
+            db.add(company)
+            await db.flush()
+
+        # Ensure dev User exists as global admin.
+        result = await db.execute(select(User).where(User.azure_oid == _DEV_OID))
+        dev_user = result.scalar_one_or_none()
+        if dev_user is None:
+            dev_user = User(
+                email=_DEV_EMAIL,
+                azure_oid=_DEV_OID,
+                display_name="Dev User",
+                is_active=True,
+                is_global_admin=True,
+                last_login_at=now_dt,
+            )
+            db.add(dev_user)
+        else:
+            dev_user.is_global_admin = True
+            dev_user.last_login_at = now_dt
+        await db.commit()
+
+        now = int(datetime.now(timezone.utc).timestamp())
+        claims = {
+            "sub": _DEV_OID,
+            "oid": _DEV_OID,
+            "email": _DEV_EMAIL,
+            "preferred_username": _DEV_EMAIL,
+            "name": "Dev User",
+            "kaats_roles": ["global_admin"],
+            "kaats_company_id": str(_DEV_COMPANY_ID),
+            "kaats_enterprise_id": str(_DEV_ENTERPRISE_ID),
+            "iat": now,
+            "exp": now + 86400,  # 24 h
+        }
+        token = jwt.encode(claims, key="dev-secret", algorithm="HS256")
+        return TokenResponse(access_token=token, token_type="bearer", expires_in=86400)
+
     return await exchange_token(body)
 
 
