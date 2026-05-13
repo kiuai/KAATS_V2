@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import get_session_factory
+import app.models.agent_run  # noqa: F401 — registers AgentRun in mapper registry
 from app.models.scheduled_job import ScheduledJob
 from app.scheduler.cron_parser import compute_next_run
 from app.scheduler.job_dispatcher import dispatch_job
