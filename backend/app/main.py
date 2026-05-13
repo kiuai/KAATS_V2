@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.agents.browser_pool import close_browser_pool, init_browser_pool
 from app.blob import close_blob, init_blob
 from app.config import get_settings
 from app.cosmos import close_cosmos, init_cosmos
@@ -43,11 +44,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as exc:  # noqa: BLE001
         log.warning("cosmos.startup_skipped", error=str(exc))
     await init_blob()
+    try:
+        await init_browser_pool(size=settings.browser_pool_size)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("browser_pool.startup_skipped", error=str(exc))
 
     log.info("kaats.ready")
     yield
 
     log.info("kaats.shutdown")
+    await close_browser_pool()
     await close_db()
     await close_cosmos()
     await close_blob()

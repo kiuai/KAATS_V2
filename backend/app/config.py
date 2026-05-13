@@ -95,6 +95,7 @@ class Settings(BaseSettings):
     llm_max_retries: int = 3
     llm_retry_base_seconds: float = 2.0
     checkpoint_every_n_steps: int = 10
+    browser_pool_size: int = 3
 
     # ── Evidence ──────────────────────────────────────────────────────────────
     evidence_retention_days: int = 365
