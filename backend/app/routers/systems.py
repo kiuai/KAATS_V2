@@ -38,6 +38,6 @@ async def update_system(
     return await SystemService(db).update_system(system_id, body)
 
 
-@router.delete("/{system_id}", status_code=204, dependencies=[can_manage_content])
+@router.delete("/{system_id}", status_code=204, response_model=None, dependencies=[can_manage_content])
 async def delete_system(system_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await SystemService(db).delete_system(system_id)

@@ -43,6 +43,6 @@ async def assign_role(
     return await UserService(db).assign_role(user_id, body)
 
 
-@router.delete("/{user_id}", status_code=204, dependencies=[can_manage_company])
+@router.delete("/{user_id}", status_code=204, response_model=None, dependencies=[can_manage_company])
 async def remove_user(user_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await UserService(db).remove_user(user_id)

@@ -43,7 +43,7 @@ async def update_job(
     return await SchedulerService(db).update_job(job_id, body)
 
 
-@router.delete("/{job_id}", status_code=204, dependencies=[can_manage_content])
+@router.delete("/{job_id}", status_code=204, response_model=None, dependencies=[can_manage_content])
 async def delete_job(job_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await SchedulerService(db).delete_job(job_id)
 

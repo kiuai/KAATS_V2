@@ -28,6 +28,6 @@ async def rerun_execution(execution_id: UUID, db: AsyncSession = Depends(get_db)
     return await TestCycleService(db).rerun(execution_id)
 
 
-@router.delete("/executions/{execution_id}", status_code=204, dependencies=[can_manage_content])
+@router.delete("/executions/{execution_id}", status_code=204, response_model=None, dependencies=[can_manage_content])
 async def delete_execution(execution_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await TestCycleService(db).delete(execution_id)

@@ -80,7 +80,7 @@ async def get_run_steps(run_id: UUID, db: AsyncSession = Depends(get_db)) -> dic
     return await AgentRunService(db).get_steps_from_cosmos(run_id)
 
 
-@router.delete("/agent_runs/{run_id}", status_code=204, dependencies=[can_run_agents])
+@router.delete("/agent_runs/{run_id}", status_code=204, response_model=None, dependencies=[can_run_agents])
 async def cancel_agent_run(run_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await AgentRunService(db).cancel(run_id)
 

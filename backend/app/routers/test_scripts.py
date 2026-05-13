@@ -38,7 +38,7 @@ async def update_script(
     return await TestScriptService(db).update(script_id, body)
 
 
-@router.delete("/scripts/{script_id}", status_code=204, dependencies=[can_manage_content])
+@router.delete("/scripts/{script_id}", status_code=204, response_model=None, dependencies=[can_manage_content])
 async def delete_script(script_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await TestScriptService(db).delete(script_id)
 

@@ -43,6 +43,6 @@ async def verify_integrity(
     return await EvidenceService(db).verify_integrity(execution_id)
 
 
-@router.delete("/executions/{execution_id}/evidence", status_code=204, dependencies=[can_manage_content])
+@router.delete("/executions/{execution_id}/evidence", status_code=204, response_model=None, dependencies=[can_manage_content])
 async def delete_evidence(execution_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await EvidenceService(db).delete_evidence(execution_id)

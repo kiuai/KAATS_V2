@@ -37,7 +37,7 @@ async def update_requirement(
     return await RequirementService(db).update(requirement_id, body)
 
 
-@router.delete("/requirements/{requirement_id}", status_code=204, dependencies=[can_manage_content])
+@router.delete("/requirements/{requirement_id}", status_code=204, response_model=None, dependencies=[can_manage_content])
 async def delete_requirement(requirement_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
     await RequirementService(db).delete(requirement_id)
 
