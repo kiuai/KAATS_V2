@@ -1482,58 +1482,865 @@ def _make_save_test_script(ctx: ToolContext) -> StructuredTool:
 # ── Execution tools ───────────────────────────────────────────────────────────
 
 
-def build_execution_tools(page: Any, memory: Any, db_session: Any) -> list:  # type: ignore[type-arg]
-    """Build Playwright-based tools for ExecutionAgent."""
-    from langchain.tools import tool
-
-    @tool
-    async def navigate_to_url(url: str) -> str:  # type: ignore[misc]
-        """Navigate the browser to a URL."""
-        await page.goto(url, wait_until="networkidle")
-        return f"Navigated to {url}"
-
-    @tool
-    async def click_element(selector: str) -> str:  # type: ignore[misc]
-        """Click an element by CSS selector."""
-        await page.click(selector, timeout=30000)
-        return f"Clicked: {selector}"
-
-    @tool
-    async def fill_input(selector: str, value: str) -> str:  # type: ignore[misc]
-        """Fill an input field."""
-        await page.fill(selector, value)
-        return f"Filled: {selector}"
-
-    @tool
-    async def assert_element_visible(selector: str) -> str:  # type: ignore[misc]
-        """Assert that an element is visible on the page."""
-        visible = await page.is_visible(selector)
-        return "passed" if visible else f"failed: element not visible: {selector}"
-
-    @tool
-    async def assert_text_contains(text: str) -> str:  # type: ignore[misc]
-        """Assert that the page contains a specific text string."""
-        content = await page.inner_text("body")
-        return "passed" if text in content else f"failed: text not found: {text!r}"
-
-    @tool
-    async def mark_step_passed(reason: str = "") -> str:  # type: ignore[misc]
-        """Record the current step as passed."""
-        step = memory.get("current_step_index", 0)
-        memory.append("step_results", {"step": step, "status": "passed", "reason": reason})
-        memory.increment("current_step_index")
-        return f"Step {step} passed"
-
-    @tool
-    async def mark_step_failed(reason: str) -> str:  # type: ignore[misc]
-        """Record the current step as failed with a reason."""
-        step = memory.get("current_step_index", 0)
-        memory.append("step_results", {"step": step, "status": "failed", "reason": reason})
-        memory.increment("current_step_index")
-        return f"Step {step} failed: {reason}"
-
+def build_execution_tools(ctx: ToolContext) -> list[StructuredTool]:
+    """
+    Build full Playwright-based execution tools for ExecutionAgent.
+    ``ctx.page`` must be a live Playwright Page before calling this.
+    """
     return [
-        navigate_to_url, click_element, fill_input,
-        assert_element_visible, assert_text_contains,
-        mark_step_passed, mark_step_failed,
+        _make_load_test_script(ctx),
+        _make_create_execution_run(ctx),
+        _make_browser_navigate(ctx),
+        _make_browser_click(ctx),
+        _make_browser_fill(ctx),
+        _make_browser_select(ctx),
+        _make_browser_assert_visible(ctx),
+        _make_browser_assert_text(ctx),
+        _make_browser_assert_url(ctx),
+        _make_browser_wait(ctx),
+        _make_browser_wait_for_element(ctx),
+        _make_take_step_screenshot(ctx),
+        _make_save_step_result(ctx),
+        _make_finalize_execution_run(ctx),
+        _make_generate_evidence_report(ctx),
+        _make_create_test_result(ctx),
     ]
+
+
+# ── Load test script ──────────────────────────────────────────────────────────
+
+
+def _make_load_test_script(ctx: ToolContext) -> StructuredTool:
+    async def load_test_script(script_id: str) -> str:
+        """Load TestScript from DB with all test cases and steps. Returns JSON."""
+        from sqlalchemy.orm import selectinload
+        from sqlalchemy import select as sa_select
+        from app.models.test_script import TestScript, TestCase, TestStep
+
+        try:
+            sid = UUID(script_id)
+        except ValueError:
+            return f"error: invalid script_id '{script_id}'"
+
+        stmt = (
+            sa_select(TestScript)
+            .where(TestScript.id == sid)
+            .options(
+                selectinload(TestScript.cases).selectinload(TestCase.steps)
+            )
+        )
+        result = await ctx.db.execute(stmt)
+        script = result.scalar_one_or_none()
+        if script is None:
+            return f"error: TestScript {script_id} not found"
+
+        payload = {
+            "script_id": str(script.id),
+            "title": script.title,
+            "description": script.description,
+            "export_format": script.export_format,
+            "system_id": str(script.system_id),
+            "test_cases": [
+                {
+                    "case_id": str(case.id),
+                    "name": case.name,
+                    "description": case.description,
+                    "stop_on_failure": case.stop_on_failure,
+                    "order_index": case.order_index,
+                    "steps": [
+                        {
+                            "step_id": str(step.id),
+                            "step_number": step.step_number,
+                            "action": step.action,
+                            "description": step.description,
+                            "expected_outcome": step.expected_outcome or "",
+                            "parameters": step.parameters or {},
+                        }
+                        for step in sorted(case.steps, key=lambda s: s.step_number)
+                    ],
+                }
+                for case in sorted(script.cases, key=lambda c: c.order_index)
+            ],
+        }
+        ctx.memory.set(f"script_{script_id}", json.dumps(payload))
+        return json.dumps(payload)
+
+    return StructuredTool.from_function(
+        coroutine=load_test_script,
+        name="load_test_script",
+        description=(
+            "Load a TestScript from the database including all test cases and steps. "
+            "Returns JSON with the full script structure. "
+            "Also stores the script in working memory under 'script_{script_id}'."
+        ),
+    )
+
+
+# ── Create execution run ──────────────────────────────────────────────────────
+
+
+def _make_create_execution_run(ctx: ToolContext) -> StructuredTool:
+    async def create_execution_run(script_id: str) -> str:
+        """Create an ExecutionRun record with status=RUNNING. Returns run_id."""
+        from app.models.execution_evidence import ExecutionRun
+        from app.models.enums import ExecutionStatus
+
+        try:
+            sid = UUID(script_id)
+        except ValueError:
+            return f"error: invalid script_id '{script_id}'"
+
+        run = ExecutionRun(
+            agent_run_id=ctx.agent_run_id,
+            test_script_id=sid,
+            company_id=ctx.company_id,
+            status=ExecutionStatus.RUNNING.value,
+        )
+        ctx.db.add(run)
+        await ctx.db.flush()
+
+        run_id = str(run.id)
+        # Track all run_ids created in this agent run
+        existing: list[str] = ctx.memory.get("execution_run_ids") or []
+        existing.append(run_id)
+        ctx.memory.set("execution_run_ids", existing)
+        ctx.memory.set(f"run_id_for_script_{script_id}", run_id)
+
+        log.info("execution.run_created", run_id=run_id, script_id=script_id)
+        return json.dumps({"run_id": run_id, "status": "running"})
+
+    return StructuredTool.from_function(
+        coroutine=create_execution_run,
+        name="create_execution_run",
+        description=(
+            "Create a new ExecutionRun record (status=RUNNING) for a TestScript. "
+            "Returns JSON with 'run_id'. Must be called before save_step_result."
+        ),
+    )
+
+
+# ── Browser interaction tools ─────────────────────────────────────────────────
+
+
+def _make_browser_navigate(ctx: ToolContext) -> StructuredTool:
+    async def browser_navigate(url: str) -> str:
+        """Navigate to URL. Returns title and HTTP status."""
+        if ctx.page is None:
+            return "error: browser page not available"
+        try:
+            response = await ctx.page.goto(url, wait_until="domcontentloaded", timeout=30_000)
+            status = response.status if response else 0
+            title = await ctx.page.title()
+            return json.dumps({"success": True, "title": title, "status_code": status, "url": ctx.page.url})
+        except Exception as exc:
+            return json.dumps({"success": False, "title": "", "status_code": 0, "error_message": str(exc)})
+
+    return StructuredTool.from_function(
+        coroutine=browser_navigate,
+        name="browser_navigate",
+        description="Navigate the browser to a URL. Returns JSON: {success, title, status_code}.",
+    )
+
+
+def _make_browser_click(ctx: ToolContext) -> StructuredTool:
+    async def browser_click(locator: str, description: str = "") -> str:
+        """
+        Click element using multi-strategy: CSS → XPath → aria-label → visible text.
+        Returns JSON: {success, element_found, error_message}.
+        """
+        if ctx.page is None:
+            return json.dumps({"success": False, "element_found": False, "error_message": "no browser"})
+
+        strategies = [
+            ("css", locator),
+            ("xpath", f"xpath={locator}" if not locator.startswith("xpath=") else locator),
+            ("aria", f"[aria-label='{locator}']"),
+            ("text", f"text={locator}"),
+            ("role", f"role=button[name='{locator}']"),
+        ]
+
+        for strategy_name, sel in strategies:
+            try:
+                el = ctx.page.locator(sel).first
+                count = await el.count()
+                if count > 0:
+                    await el.click(timeout=10_000)
+                    log.debug("execution.click", strategy=strategy_name, locator=locator)
+                    return json.dumps({"success": True, "element_found": True, "error_message": ""})
+            except Exception:
+                continue
+
+        return json.dumps({
+            "success": False,
+            "element_found": False,
+            "error_message": f"Element not found with any strategy: {locator!r}",
+        })
+
+    return StructuredTool.from_function(
+        coroutine=browser_click,
+        name="browser_click",
+        description=(
+            "Click an element. Tries CSS selector, XPath, aria-label, and visible text. "
+            "Returns JSON: {success, element_found, error_message}."
+        ),
+    )
+
+
+def _make_browser_fill(ctx: ToolContext) -> StructuredTool:
+    async def browser_fill(locator: str, value: str, description: str = "") -> str:
+        """Clear and fill an input field. Returns JSON: {success, error_message}."""
+        if ctx.page is None:
+            return json.dumps({"success": False, "error_message": "no browser"})
+        try:
+            el = ctx.page.locator(locator).first
+            await el.fill(value, timeout=10_000)
+            return json.dumps({"success": True, "error_message": ""})
+        except Exception as exc:
+            return json.dumps({"success": False, "error_message": str(exc)})
+
+    return StructuredTool.from_function(
+        coroutine=browser_fill,
+        name="browser_fill",
+        description="Clear and fill a form input field. Returns JSON: {success, error_message}.",
+    )
+
+
+def _make_browser_select(ctx: ToolContext) -> StructuredTool:
+    async def browser_select(locator: str, option_text: str, description: str = "") -> str:
+        """Select dropdown option by visible text. Returns JSON: {success, error_message}."""
+        if ctx.page is None:
+            return json.dumps({"success": False, "error_message": "no browser"})
+        try:
+            await ctx.page.locator(locator).select_option(label=option_text, timeout=10_000)
+            return json.dumps({"success": True, "error_message": ""})
+        except Exception as exc:
+            return json.dumps({"success": False, "error_message": str(exc)})
+
+    return StructuredTool.from_function(
+        coroutine=browser_select,
+        name="browser_select",
+        description="Select a dropdown option by its visible text. Returns JSON: {success, error_message}.",
+    )
+
+
+def _make_browser_assert_visible(ctx: ToolContext) -> StructuredTool:
+    async def browser_assert_visible(locator: str, description: str = "") -> str:
+        """Assert element is visible on page. Returns JSON: {passed, error_message}."""
+        if ctx.page is None:
+            return json.dumps({"passed": False, "error_message": "no browser"})
+        try:
+            visible = await ctx.page.locator(locator).first.is_visible()
+            if visible:
+                return json.dumps({"passed": True, "error_message": ""})
+            return json.dumps({"passed": False, "error_message": f"Element not visible: {locator!r}"})
+        except Exception as exc:
+            return json.dumps({"passed": False, "error_message": str(exc)})
+
+    return StructuredTool.from_function(
+        coroutine=browser_assert_visible,
+        name="browser_assert_visible",
+        description="Assert an element is visible. Returns JSON: {passed, error_message}.",
+    )
+
+
+def _make_browser_assert_text(ctx: ToolContext) -> StructuredTool:
+    async def browser_assert_text(locator: str, expected_text: str, description: str = "") -> str:
+        """Assert element contains expected_text (partial match). Returns JSON: {passed, actual_text, error_message}."""
+        if ctx.page is None:
+            return json.dumps({"passed": False, "actual_text": "", "error_message": "no browser"})
+        try:
+            el = ctx.page.locator(locator).first
+            actual = await el.inner_text(timeout=10_000)
+            passed = expected_text.lower() in actual.lower()
+            return json.dumps({
+                "passed": passed,
+                "actual_text": actual[:500],
+                "error_message": "" if passed else f"Expected {expected_text!r} not found in {actual[:200]!r}",
+            })
+        except Exception as exc:
+            return json.dumps({"passed": False, "actual_text": "", "error_message": str(exc)})
+
+    return StructuredTool.from_function(
+        coroutine=browser_assert_text,
+        name="browser_assert_text",
+        description="Assert element contains expected text (partial match). Returns JSON: {passed, actual_text, error_message}.",
+    )
+
+
+def _make_browser_assert_url(ctx: ToolContext) -> StructuredTool:
+    async def browser_assert_url(expected_pattern: str) -> str:
+        """Assert current URL contains expected_pattern. Returns JSON: {passed, actual_url}."""
+        if ctx.page is None:
+            return json.dumps({"passed": False, "actual_url": ""})
+        actual = ctx.page.url
+        passed = expected_pattern.lower() in actual.lower()
+        return json.dumps({"passed": passed, "actual_url": actual})
+
+    return StructuredTool.from_function(
+        coroutine=browser_assert_url,
+        name="browser_assert_url",
+        description="Assert current URL contains the expected pattern. Returns JSON: {passed, actual_url}.",
+    )
+
+
+def _make_browser_wait(ctx: ToolContext) -> StructuredTool:
+    async def browser_wait(milliseconds: int) -> str:
+        """Wait for specified time. Returns 'waited: Nms'."""
+        import asyncio
+        ms = max(0, min(milliseconds, 10_000))  # cap at 10 s
+        await asyncio.sleep(ms / 1000)
+        return f"waited: {ms}ms"
+
+    return StructuredTool.from_function(
+        coroutine=browser_wait,
+        name="browser_wait",
+        description="Wait for specified milliseconds (max 10 000). Use sparingly — prefer browser_wait_for_element.",
+    )
+
+
+def _make_browser_wait_for_element(ctx: ToolContext) -> StructuredTool:
+    async def browser_wait_for_element(locator: str, timeout_ms: int = 10_000) -> str:
+        """Wait until element appears. Returns JSON: {appeared, timeout_reached}."""
+        if ctx.page is None:
+            return json.dumps({"appeared": False, "timeout_reached": True})
+        try:
+            await ctx.page.locator(locator).first.wait_for(
+                state="visible", timeout=min(timeout_ms, 30_000)
+            )
+            return json.dumps({"appeared": True, "timeout_reached": False})
+        except Exception:
+            return json.dumps({"appeared": False, "timeout_reached": True})
+
+    return StructuredTool.from_function(
+        coroutine=browser_wait_for_element,
+        name="browser_wait_for_element",
+        description="Wait until element is visible. Returns JSON: {appeared, timeout_reached}.",
+    )
+
+
+# ── Screenshot + evidence tools ───────────────────────────────────────────────
+
+
+def _make_take_step_screenshot(ctx: ToolContext) -> StructuredTool:
+    async def take_step_screenshot(
+        step_number: int,
+        step_description: str,
+        outcome: str,
+    ) -> str:
+        """
+        Capture full-page screenshot, annotate with Pillow, upload to Blob.
+        Returns blob URL (or empty string on failure).
+        """
+        from app.agents.screenshot_annotator import get_annotator
+        from app.blob import upload_bytes, build_evidence_path
+
+        run_id = ctx.memory.get("current_execution_run_id") or str(ctx.agent_run_id)
+
+        # Capture screenshot from Playwright
+        raw_bytes: bytes = b""
+        if ctx.page is not None:
+            try:
+                raw_bytes = await ctx.page.screenshot(full_page=True, timeout=15_000)
+            except Exception as exc:
+                log.warning("execution.screenshot_failed", error=str(exc), step=step_number)
+
+        if not raw_bytes:
+            # Produce a minimal 1×1 placeholder so we always have something
+            from PIL import Image as _PILImage
+            import io as _io
+            img = _PILImage.new("RGB", (1920, 1080), color=(200, 200, 200))
+            buf = _io.BytesIO()
+            img.save(buf, format="PNG")
+            raw_bytes = buf.getvalue()
+
+        # Annotate
+        try:
+            annotated = get_annotator().annotate(
+                image_bytes=raw_bytes,
+                step_number=step_number,
+                description=step_description,
+                outcome=outcome,
+                timestamp=datetime.now(timezone.utc),
+            )
+        except Exception as exc:
+            log.warning("execution.annotation_failed", error=str(exc))
+            annotated = raw_bytes
+
+        # Upload to Blob
+        blob_path = build_evidence_path(
+            str(ctx.company_id),
+            run_id,
+            f"step_{step_number:03d}.png",
+        )
+        if ctx.blob_client is not None:
+            try:
+                await upload_bytes(blob_path, annotated, content_type="image/png")
+                settings_url = (
+                    f"https://{ctx.blob_client.account_name}.blob.core.windows.net"
+                    f"/kaats-evidence/{blob_path}"
+                )
+                ctx.memory.append(
+                    "step_screenshots",
+                    {"step": step_number, "url": settings_url, "blob_path": blob_path},
+                )
+                log.debug("execution.screenshot_uploaded", step=step_number, path=blob_path)
+                return settings_url
+            except Exception as exc:
+                log.warning("execution.screenshot_upload_failed", error=str(exc), step=step_number)
+
+        return blob_path  # Return path even if blob upload failed
+
+    return StructuredTool.from_function(
+        coroutine=take_step_screenshot,
+        name="take_step_screenshot",
+        description=(
+            "Capture a full-page screenshot, annotate it with step metadata and outcome, "
+            "and upload to Blob Storage. "
+            "Args: step_number (int), step_description (str), outcome ('passed'|'failed'|'blocked'|'error'). "
+            "Returns the blob URL."
+        ),
+    )
+
+
+def _make_save_step_result(ctx: ToolContext) -> StructuredTool:
+    async def save_step_result(
+        execution_run_id: str,
+        step_number: int,
+        step_description: str,
+        action: str,
+        expected_result: str,
+        actual_result: str,
+        outcome: str,
+        screenshot_url: str,
+        duration_ms: int = 0,
+    ) -> str:
+        """Persist ExecutionStepResult record. Returns step_result_id."""
+        from app.models.execution_evidence import ExecutionStepResult
+
+        try:
+            run_uuid = UUID(execution_run_id)
+        except ValueError:
+            return f"error: invalid execution_run_id '{execution_run_id}'"
+
+        step_result = ExecutionStepResult(
+            execution_run_id=run_uuid,
+            step_number=step_number,
+            step_description=step_description[:2000],
+            action=action[:100],
+            expected_result=expected_result[:4000],
+            actual_result=(actual_result or "")[:4000],
+            outcome=outcome,
+            screenshot_blob_url=screenshot_url[:2048] if screenshot_url else None,
+            duration_ms=max(0, duration_ms),
+        )
+        ctx.db.add(step_result)
+        await ctx.db.flush()
+
+        result_id = str(step_result.id)
+        ctx.memory.append("saved_step_result_ids", result_id)
+        return json.dumps({"step_result_id": result_id, "outcome": outcome})
+
+    return StructuredTool.from_function(
+        coroutine=save_step_result,
+        name="save_step_result",
+        description=(
+            "Persist an ExecutionStepResult to the database. "
+            "Args: execution_run_id, step_number, step_description, action, "
+            "expected_result, actual_result, outcome, screenshot_url, duration_ms. "
+            "Returns JSON with step_result_id."
+        ),
+    )
+
+
+def _make_finalize_execution_run(ctx: ToolContext) -> StructuredTool:
+    async def finalize_execution_run(execution_run_id: str) -> str:
+        """Calculate totals, set status, set completed_at. Returns summary JSON."""
+        from sqlalchemy import select as sa_select
+        from app.models.execution_evidence import ExecutionRun, ExecutionStepResult
+        from app.models.enums import ExecutionStatus, StepOutcome
+
+        try:
+            run_uuid = UUID(execution_run_id)
+        except ValueError:
+            return f"error: invalid execution_run_id '{execution_run_id}'"
+
+        run = await ctx.db.get(ExecutionRun, run_uuid)
+        if run is None:
+            return f"error: ExecutionRun {execution_run_id} not found"
+
+        # Count step results
+        result = await ctx.db.execute(
+            sa_select(ExecutionStepResult).where(
+                ExecutionStepResult.execution_run_id == run_uuid
+            )
+        )
+        steps = result.scalars().all()
+        total = len(steps)
+        passed = sum(1 for s in steps if s.outcome == StepOutcome.PASSED.value)
+        failed = sum(1 for s in steps if s.outcome == StepOutcome.FAILED.value)
+        blocked = sum(1 for s in steps if s.outcome == StepOutcome.BLOCKED.value)
+
+        # Determine overall status
+        if failed > 0 or total == 0:
+            status = ExecutionStatus.FAILED.value
+        elif blocked > 0:
+            status = ExecutionStatus.FAILED.value
+        else:
+            status = ExecutionStatus.PASSED.value
+
+        run.status = status
+        run.total_steps = total
+        run.passed_steps = passed
+        run.failed_steps = failed
+        run.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        await ctx.db.flush()
+
+        summary = {
+            "execution_run_id": execution_run_id,
+            "status": status,
+            "total_steps": total,
+            "passed_steps": passed,
+            "failed_steps": failed,
+            "blocked_steps": blocked,
+        }
+        log.info("execution.run_finalized", **summary)
+        return json.dumps(summary)
+
+    return StructuredTool.from_function(
+        coroutine=finalize_execution_run,
+        name="finalize_execution_run",
+        description=(
+            "Calculate totals for all step results and update ExecutionRun status "
+            "(PASSED if all steps pass, FAILED otherwise). "
+            "Sets completed_at timestamp. Returns summary JSON."
+        ),
+    )
+
+
+def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
+    async def generate_evidence_report(execution_run_id: str) -> str:
+        """
+        Build a PDF evidence report with reportlab and upload to Blob.
+        Returns PDF blob URL.
+        """
+        from sqlalchemy import select as sa_select
+        from sqlalchemy.orm import selectinload
+        from app.models.execution_evidence import ExecutionRun, ExecutionStepResult
+        from app.models.test_script import TestScript
+        from app.blob import upload_bytes, build_evidence_path, download_bytes
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import cm
+        from reportlab.lib import colors
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+            Image as RLImage, PageBreak, HRFlowable,
+        )
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        import io as _io
+
+        try:
+            run_uuid = UUID(execution_run_id)
+        except ValueError:
+            return f"error: invalid execution_run_id '{execution_run_id}'"
+
+        run = await ctx.db.get(ExecutionRun, run_uuid)
+        if run is None:
+            return f"error: ExecutionRun {execution_run_id} not found"
+
+        # Load step results ordered by step_number
+        sr_result = await ctx.db.execute(
+            sa_select(ExecutionStepResult)
+            .where(ExecutionStepResult.execution_run_id == run_uuid)
+            .order_by(ExecutionStepResult.step_number)
+        )
+        steps: list[ExecutionStepResult] = list(sr_result.scalars().all())
+
+        # Load script title
+        script = await ctx.db.get(TestScript, run.test_script_id)
+        script_title = script.title if script else f"Script {run.test_script_id}"
+
+        # ── Build PDF in memory ───────────────────────────────────────────────
+        buf = _io.BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=A4,
+            leftMargin=2 * cm,
+            rightMargin=2 * cm,
+            topMargin=2 * cm,
+            bottomMargin=2 * cm,
+            title="Evidence Report",
+            author="KAATS",
+        )
+
+        styles = getSampleStyleSheet()
+        _PAGE_W = A4[0] - 4 * cm
+
+        # Custom styles
+        h1 = ParagraphStyle("H1", parent=styles["Heading1"], fontSize=20, spaceAfter=6,
+                             textColor=colors.HexColor("#1e3a5f"), alignment=TA_CENTER)
+        h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontSize=14, spaceAfter=4,
+                             textColor=colors.HexColor("#1e3a5f"))
+        body = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, spaceAfter=4)
+        label = ParagraphStyle("Label", parent=styles["Normal"], fontSize=9,
+                               textColor=colors.HexColor("#6b7280"))
+        mono = ParagraphStyle("Mono", parent=styles["Normal"], fontSize=9,
+                              fontName="Courier", spaceAfter=4, backColor=colors.HexColor("#f3f4f6"))
+
+        def outcome_colour(o: str) -> colors.Color:
+            mapping = {
+                "passed": colors.HexColor("#22c55e"),
+                "failed": colors.HexColor("#ef4444"),
+                "blocked": colors.HexColor("#f97316"),
+                "error": colors.HexColor("#ef4444"),
+            }
+            return mapping.get(o.lower(), colors.grey)
+
+        exec_date = (run.completed_at or run.started_at).strftime("%Y-%m-%d %H:%M UTC")
+        overall = run.status.upper()
+        overall_c = outcome_colour(run.status)
+
+        story: list = []
+
+        # ── Cover page ────────────────────────────────────────────────────────
+        story.append(Spacer(1, 3 * cm))
+        story.append(Paragraph("KAATS — Evidence Report", h1))
+        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#1e3a5f")))
+        story.append(Spacer(1, 0.5 * cm))
+
+        cover_data = [
+            ["Script:", script_title],
+            ["Execution Date:", exec_date],
+            ["Execution Run ID:", execution_run_id],
+            ["Overall Outcome:", overall],
+        ]
+        cover_table = Table(cover_data, colWidths=[4 * cm, _PAGE_W - 4 * cm])
+        cover_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), 11),
+            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+            ("TEXTCOLOR", (1, 3), (1, 3), overall_c),
+            ("FONTNAME", (1, 3), (1, 3), "Helvetica-Bold"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(cover_table)
+        story.append(Spacer(1, 1 * cm))
+
+        # ── Summary table ─────────────────────────────────────────────────────
+        story.append(Paragraph("Execution Summary", h2))
+        summary_data = [
+            ["Total Steps", "Passed", "Failed", "Blocked"],
+            [
+                str(run.total_steps),
+                str(run.passed_steps),
+                str(run.failed_steps),
+                str(run.total_steps - run.passed_steps - run.failed_steps),
+            ],
+        ]
+        sum_table = Table(summary_data, colWidths=[_PAGE_W / 4] * 4)
+        sum_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a5f")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 11),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, 1), [colors.HexColor("#f9fafb")]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("TEXTCOLOR", (1, 1), (1, 1), colors.HexColor("#22c55e")),
+            ("TEXTCOLOR", (2, 1), (2, 1), colors.HexColor("#ef4444")),
+            ("TEXTCOLOR", (3, 1), (3, 1), colors.HexColor("#f97316")),
+            ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+        ]))
+        story.append(sum_table)
+        story.append(PageBreak())
+
+        # ── Per-step pages ────────────────────────────────────────────────────
+        for step in steps:
+            oc = step.outcome
+            oc_colour = outcome_colour(oc)
+
+            story.append(Paragraph(
+                f"Step {step.step_number:03d} — {step.step_description}", h2
+            ))
+            story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e5e7eb")))
+            story.append(Spacer(1, 0.2 * cm))
+
+            # Step metadata table
+            meta = [
+                ["Action:", step.action],
+                ["Expected:", step.expected_result or "—"],
+                ["Actual:", step.actual_result or "—"],
+                ["Duration:", f"{step.duration_ms} ms"],
+            ]
+            meta_table = Table(meta, colWidths=[3 * cm, _PAGE_W - 3 * cm])
+            meta_table.setStyle(TableStyle([
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 10),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(meta_table)
+            story.append(Spacer(1, 0.3 * cm))
+
+            # Outcome badge
+            badge_data = [[f"  {oc.upper()}  "]]
+            badge = Table(badge_data, colWidths=[3 * cm])
+            badge.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (0, 0), oc_colour),
+                ("TEXTCOLOR", (0, 0), (0, 0), colors.white),
+                ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (0, 0), 11),
+                ("ALIGN", (0, 0), (0, 0), "CENTER"),
+                ("TOPPADDING", (0, 0), (0, 0), 6),
+                ("BOTTOMPADDING", (0, 0), (0, 0), 6),
+                ("ROUNDEDCORNERS", [3, 3, 3, 3]),
+            ]))
+            story.append(badge)
+            story.append(Spacer(1, 0.4 * cm))
+
+            # Error message if present
+            if step.error_message:
+                story.append(Paragraph("Error:", label))
+                story.append(Paragraph(step.error_message[:500], mono))
+                story.append(Spacer(1, 0.2 * cm))
+
+            # Screenshot
+            if step.screenshot_blob_url and ctx.blob_client is not None:
+                try:
+                    # Extract blob path from full URL
+                    blob_path = step.screenshot_blob_url
+                    if "/kaats-evidence/" in blob_path:
+                        blob_path = blob_path.split("/kaats-evidence/", 1)[1].split("?")[0]
+                    img_bytes = await download_bytes(blob_path)
+                    img_stream = _io.BytesIO(img_bytes)
+                    # Scale to fit page width
+                    from PIL import Image as _PILImage
+                    pil_img = _PILImage.open(_io.BytesIO(img_bytes))
+                    orig_w, orig_h = pil_img.size
+                    scale = min(_PAGE_W / orig_w, 18 * cm / orig_h)
+                    rl_img = RLImage(img_stream, width=orig_w * scale, height=orig_h * scale)
+                    story.append(rl_img)
+                except Exception as exc:
+                    story.append(Paragraph(f"[Screenshot unavailable: {exc}]", body))
+            else:
+                story.append(Paragraph("[No screenshot captured]", body))
+
+            story.append(PageBreak())
+
+        # Build PDF
+        doc.build(story)
+        pdf_bytes = buf.getvalue()
+
+        # Upload PDF
+        pdf_blob_path = build_evidence_path(
+            str(ctx.company_id),
+            execution_run_id,
+            "evidence_report.pdf",
+        )
+        pdf_url = ""
+        if ctx.blob_client is not None:
+            try:
+                await upload_bytes(pdf_blob_path, pdf_bytes, content_type="application/pdf")
+                pdf_url = (
+                    f"https://{ctx.blob_client.account_name}.blob.core.windows.net"
+                    f"/kaats-evidence/{pdf_blob_path}"
+                )
+                # Update ExecutionRun record
+                run.evidence_pdf_blob_url = pdf_url
+                await ctx.db.flush()
+                log.info("execution.report_generated", run_id=execution_run_id, path=pdf_blob_path)
+            except Exception as exc:
+                log.warning("execution.report_upload_failed", error=str(exc))
+                pdf_url = f"local:{pdf_blob_path}"
+
+        # Track report URLs in memory
+        existing_reports: list[str] = ctx.memory.get("report_urls") or []
+        existing_reports.append(pdf_url)
+        ctx.memory.set("report_urls", existing_reports)
+
+        return json.dumps({"report_url": pdf_url, "size_bytes": len(pdf_bytes)})
+
+    return StructuredTool.from_function(
+        coroutine=generate_evidence_report,
+        name="generate_evidence_report",
+        description=(
+            "Build a professional PDF evidence report for an ExecutionRun using reportlab. "
+            "Includes cover page, summary table, and per-step pages with screenshots. "
+            "Uploads the PDF to Blob Storage and updates the ExecutionRun record. "
+            "Returns JSON with 'report_url'."
+        ),
+    )
+
+
+def _make_create_test_result(ctx: ToolContext) -> StructuredTool:
+    async def create_test_result(
+        assignment_id: str,
+        execution_run_id: str,
+        outcome: str,
+        notes: str = "",
+    ) -> str:
+        """
+        Create or update a TestResult linking this execution to a test cycle assignment.
+        Returns result_id.
+        """
+        from app.models.test_result import TestResult
+        from sqlalchemy import select as sa_select
+
+        try:
+            assign_uuid = UUID(assignment_id)
+            run_uuid = UUID(execution_run_id)
+        except ValueError as exc:
+            return f"error: invalid UUID — {exc}"
+
+        # Load the execution run to get test_script_id
+        from app.models.execution_evidence import ExecutionRun
+        run = await ctx.db.get(ExecutionRun, run_uuid)
+        if run is None:
+            return f"error: ExecutionRun {execution_run_id} not found"
+
+        # Check for existing result for this assignment
+        existing = await ctx.db.execute(
+            sa_select(TestResult).where(TestResult.assignment_id == assign_uuid)
+        )
+        test_result = existing.scalar_one_or_none()
+        now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        triggered_by_str = ctx.memory.get("triggered_by_user_id")
+        user_uuid: Any = UUID(triggered_by_str) if triggered_by_str else ctx.agent_run_id
+
+        if test_result is None:
+            test_result = TestResult(
+                assignment_id=assign_uuid,
+                test_script_id=run.test_script_id,
+                company_id=ctx.company_id,
+                executed_by=user_uuid,
+                execution_agent_run_id=ctx.agent_run_id,
+                executed_at=now_dt,
+                outcome=outcome,
+                notes=notes[:2000] if notes else None,
+            )
+            ctx.db.add(test_result)
+        else:
+            test_result.outcome = outcome
+            test_result.notes = notes[:2000] if notes else None
+            test_result.executed_at = now_dt
+            test_result.execution_agent_run_id = ctx.agent_run_id
+
+        await ctx.db.flush()
+        return json.dumps({"result_id": str(test_result.id), "outcome": outcome})
+
+    return StructuredTool.from_function(
+        coroutine=create_test_result,
+        name="create_test_result",
+        description=(
+            "Create or update a TestResult linking an ExecutionRun to a test cycle assignment. "
+            "Args: assignment_id (UUID), execution_run_id (UUID), outcome (str), notes (str). "
+            "Returns JSON with result_id."
+        ),
+    )
