@@ -1,0 +1,137 @@
+from __future__ import annotations
+
+import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from uuid import uuid4
+
+import structlog
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.blob import close_blob, init_blob
+from app.config import get_settings
+from app.cosmos import close_cosmos, init_cosmos
+from app.database import close_db, init_db
+from app.middleware.tenant import TenantMiddleware
+from app.routers import (
+    agents,
+    auth,
+    evidence,
+    reports,
+    requirements,
+    scheduler,
+    systems,
+    tenants,
+    test_cycles,
+    test_scripts,
+    users,
+)
+
+log = structlog.get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    log.info("kaats.startup", environment=settings.environment)
+
+    await init_db()
+    await init_cosmos()
+    await init_blob()
+
+    log.info("kaats.ready")
+    yield
+
+    log.info("kaats.shutdown")
+    await close_db()
+    await close_cosmos()
+    await close_blob()
+    log.info("kaats.stopped")
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+
+    app = FastAPI(
+        title="KAATS API",
+        description="KIU AI Agentic Test System",
+        version="1.0.0",
+        docs_url="/docs" if settings.openapi_enabled else None,
+        redoc_url="/redoc" if settings.openapi_enabled else None,
+        openapi_url="/openapi.json" if settings.openapi_enabled else None,
+        lifespan=lifespan,
+    )
+
+    # ── CORS ─────────────────────────────────────────────────────────────────
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ── Tenant middleware (extracts JWT claims, sets RLS context) ─────────────
+    app.add_middleware(TenantMiddleware)
+
+    # ── Request ID + latency logging ──────────────────────────────────────────
+    @app.middleware("http")
+    async def request_logging(request: Request, call_next: any) -> Response:  # type: ignore[valid-type]
+        request_id = str(uuid4())
+        request.state.request_id = request_id
+        start = time.perf_counter()
+        response: Response = await call_next(request)
+        duration_ms = round((time.perf_counter() - start) * 1000)
+        response.headers["X-Request-ID"] = request_id
+        log.info(
+            "http.request",
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=duration_ms,
+            request_id=request_id,
+        )
+        return response
+
+    # ── Health ────────────────────────────────────────────────────────────────
+    @app.get("/health", tags=["ops"], include_in_schema=False)
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    # ── Exception handlers ────────────────────────────────────────────────────
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        request_id = getattr(request.state, "request_id", "unknown")
+        log.exception("http.unhandled_error", request_id=request_id, exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred.",
+                    "details": None,
+                    "request_id": request_id,
+                }
+            },
+        )
+
+    # ── Routers ───────────────────────────────────────────────────────────────
+    PREFIX = "/api/v1"
+    app.include_router(auth.router, prefix=PREFIX)
+    app.include_router(tenants.router, prefix=PREFIX)
+    app.include_router(users.router, prefix=PREFIX)
+    app.include_router(systems.router, prefix=PREFIX)
+    app.include_router(requirements.router, prefix=PREFIX)
+    app.include_router(test_scripts.router, prefix=PREFIX)
+    app.include_router(test_cycles.router, prefix=PREFIX)
+    app.include_router(agents.router, prefix=PREFIX)
+    app.include_router(scheduler.router, prefix=PREFIX)
+    app.include_router(evidence.router, prefix=PREFIX)
+    app.include_router(reports.router, prefix=PREFIX)
+
+    return app
+
+
+app = create_app()
