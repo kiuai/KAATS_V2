@@ -38,7 +38,7 @@ async def _evaluate_due_jobs() -> None:
             result = await db.execute(
                 select(ScheduledJob)
                 .where(
-                    ScheduledJob.is_enabled.is_(True),
+                    ScheduledJob.is_enabled == True,  # noqa: E712
                     ScheduledJob.next_run_at <= now,
                 )
                 .order_by(ScheduledJob.next_run_at.asc())
