@@ -27,6 +27,7 @@ RUN pip install --no-cache-dir -e ".[dev]"
 RUN playwright install chromium --with-deps
 
 COPY . .
+RUN chmod +x /app/scripts/db_init.sh
 
 EXPOSE 8000
 

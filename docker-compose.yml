@@ -124,19 +124,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     env_file: .env
-    command: >
-      bash -c "
-        python -c \"
-import pyodbc, os, time
-cs = f\\\"DRIVER={{ODBC Driver 18 for SQL Server}};SERVER={os.getenv('AZURE_SQL_SERVER')};UID={os.getenv('AZURE_SQL_USERNAME')};PWD={os.getenv('AZURE_SQL_PASSWORD')};TrustServerCertificate=yes\\\"
-for i in range(10):
-    try:
-        conn = pyodbc.connect(cs, autocommit=True)
-        conn.execute(f\\\"IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name='{os.getenv('AZURE_SQL_DATABASE')}') CREATE DATABASE [{os.getenv('AZURE_SQL_DATABASE')}]\\\")
-        conn.close(); break
-    except Exception as e:
-        print(f'Waiting for SQL... {e}'); time.sleep(3)
-\" && alembic -c migrations/alembic.ini upgrade head"
+    command: ["/bin/bash", "/app/scripts/db_init.sh"]
     depends_on:
       sqlserver:
         condition: service_healthy
