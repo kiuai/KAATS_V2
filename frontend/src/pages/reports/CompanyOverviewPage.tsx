@@ -10,7 +10,6 @@ import {
 } from 'recharts'
 import { Server, FileText, Code2, CheckCircle, Activity } from 'lucide-react'
 import { apiClient, errorMessage } from '@/services/api'
-import RoleGate from '@/components/RoleGate'
 import { useAuthStore } from '@/store/authStore'
 import { usePermission } from '@/hooks/usePermission'
 import type { CompanyOverview } from '@/types'
@@ -202,9 +201,5 @@ function CompanyOverviewContent() {
 export default function CompanyOverviewPage() {
   const allowed = usePermission('admin:company')
   if (!allowed) return <AccessDenied />
-  return (
-    <RoleGate permission="admin:company" fallback={<AccessDenied />}>
-      <CompanyOverviewContent />
-    </RoleGate>
-  )
+  return <CompanyOverviewContent />
 }

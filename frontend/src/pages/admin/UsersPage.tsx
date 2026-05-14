@@ -456,7 +456,7 @@ export default function UsersPage() {
 
   // Per-user roles (lazy loaded for role chips display)
   const userRolesQueries = useQuery<Record<string, UserRole[]>>({
-    queryKey: ['users-all-roles'],
+    queryKey: ['users-all-roles', users.map((u) => u.id)],
     queryFn: async () => {
       const results: Record<string, UserRole[]> = {}
       await Promise.all(

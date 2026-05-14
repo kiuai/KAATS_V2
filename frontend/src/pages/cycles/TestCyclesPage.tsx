@@ -95,8 +95,17 @@ function NewCycleModal({ systemId, onClose, onCreated }: NewCycleModalProps) {
     queryFn: () => apiClient.get('/users').then((r) => r.data),
   })
 
+  interface CreateCycleBody {
+    name: string
+    description: string
+    system_id: string
+    planned_start?: string
+    planned_end?: string
+    lead_user_id?: string
+  }
+
   const mutation = useMutation({
-    mutationFn: (body: NewCycleFormValues & { system_id: string }) =>
+    mutationFn: (body: CreateCycleBody) =>
       apiClient.post(`/systems/${systemId}/test-cycles`, body).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['test-cycles', systemId] })
@@ -108,13 +117,15 @@ function NewCycleModal({ systemId, onClose, onCreated }: NewCycleModalProps) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitError(null)
-    mutation.mutate({
-      ...form,
+    const body: CreateCycleBody = {
+      name: form.name,
+      description: form.description,
       system_id: systemId,
-      planned_start: form.planned_start || undefined as unknown as string,
-      planned_end:   form.planned_end   || undefined as unknown as string,
-      lead_user_id:  form.lead_user_id  || undefined as unknown as string,
-    })
+    }
+    if (form.planned_start) body.planned_start = form.planned_start
+    if (form.planned_end)   body.planned_end   = form.planned_end
+    if (form.lead_user_id)  body.lead_user_id  = form.lead_user_id
+    mutation.mutate(body)
   }
 
   function set(field: keyof NewCycleFormValues) {

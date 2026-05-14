@@ -11,7 +11,6 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { apiClient, errorMessage } from '@/services/api'
-import RoleGate from '@/components/RoleGate'
 import { useAuthStore } from '@/store/authStore'
 import { usePermission } from '@/hooks/usePermission'
 import type { AgentType } from '@/types'
@@ -280,9 +279,5 @@ function AIUsageContent() {
 export default function AIUsagePage() {
   const allowed = usePermission('ai:usage_read')
   if (!allowed) return <AccessDenied />
-  return (
-    <RoleGate permission="ai:usage_read" fallback={<AccessDenied />}>
-      <AIUsageContent />
-    </RoleGate>
-  )
+  return <AIUsageContent />
 }
