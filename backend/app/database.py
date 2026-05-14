@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import struct
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar
@@ -24,6 +25,15 @@ log = structlog.get_logger(__name__)
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
+# SQL_COPT_SS_ACCESS_TOKEN for injecting AAD tokens directly into pyodbc
+_SQL_COPT_SS_ACCESS_TOKEN = 1256
+
+
+def _make_token_struct(token: str) -> bytes:
+    """Encode an AAD bearer token into the binary format pyodbc expects."""
+    token_bytes = token.encode("utf-16-le")
+    return struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+
 
 def _build_engine() -> AsyncEngine:
     settings = get_settings()
@@ -36,6 +46,24 @@ def _build_engine() -> AsyncEngine:
         pool_timeout=settings.db_pool_timeout,
         echo=not settings.is_production,
     )
+
+    # When the URL uses ActiveDirectoryMsi, bypass the ODBC driver's own MSI
+    # implementation (which times out in Container Apps VNet) by injecting a
+    # pre-fetched token via SQL_COPT_SS_ACCESS_TOKEN. The token takes precedence
+    # over the Authentication= keyword so both can coexist in the connection string.
+    if "authentication=activedirectorymsi" in settings.sqlalchemy_url.lower():
+        try:
+            from azure.identity import ManagedIdentityCredential
+
+            _msi_credential = ManagedIdentityCredential(client_id=settings.azure_client_id)
+
+            @event.listens_for(engine.sync_engine, "do_connect")
+            def _inject_token(dialect: Any, conn_rec: Any, cargs: Any, cparams: Any) -> None:
+                token = _msi_credential.get_token("https://database.windows.net/.default")
+                cparams["attrs_before"] = {_SQL_COPT_SS_ACCESS_TOKEN: _make_token_struct(token.token)}
+
+        except ImportError:
+            log.warning("azure_identity.not_installed", detail="token injection unavailable")
 
     @event.listens_for(engine.sync_engine, "connect")
     def _on_connect(dbapi_conn: Any, _: Any) -> None:

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import struct
 from logging.config import fileConfig
+from typing import Any
 
 from alembic import context
-from sqlalchemy import pool
+from sqlalchemy import event, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
@@ -56,12 +58,38 @@ def do_run_migrations(connection: object) -> None:
         context.run_migrations()
 
 
+def _maybe_add_token_injection(engine: Any, url: str, client_id: str) -> None:
+    """Inject AAD access token into pyodbc when ActiveDirectoryMsi auth is used.
+
+    Works around the ODBC Driver's own MSI implementation timing out in Container
+    Apps VNet environments by pre-fetching the token via azure-identity instead.
+    """
+    if "authentication=activedirectorymsi" not in url.lower():
+        return
+    try:
+        from azure.identity import ManagedIdentityCredential
+
+        _credential = ManagedIdentityCredential(client_id=client_id)
+        _SQL_COPT_SS_ACCESS_TOKEN = 1256
+
+        @event.listens_for(engine.sync_engine, "do_connect")
+        def _inject_token(dialect: Any, conn_rec: Any, cargs: Any, cparams: Any) -> None:
+            token = _credential.get_token("https://database.windows.net/.default")
+            token_bytes = token.token.encode("utf-16-le")
+            token_struct = struct.pack(f"<I{len(token_bytes)}s", len(token_bytes), token_bytes)
+            cparams["attrs_before"] = {_SQL_COPT_SS_ACCESS_TOKEN: token_struct}
+
+    except ImportError:
+        pass  # azure-identity not installed; fall back to ODBC MSI flow
+
+
 async def run_async_migrations() -> None:
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    _maybe_add_token_injection(connectable, settings.sqlalchemy_url, settings.azure_client_id)
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()
