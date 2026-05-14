@@ -178,6 +178,16 @@ class LastRunStatus(str, Enum):
     FAILED = "failed"
 
 
+# ── Onboarding & Invitations ──────────────────────────────────────────────────
+
+
+class InvitationStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
 # ── Agent Runs ────────────────────────────────────────────────────────────────
 
 

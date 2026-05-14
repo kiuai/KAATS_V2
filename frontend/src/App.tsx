@@ -54,6 +54,10 @@ import UsersPage from '@/pages/admin/UsersPage'
 import CompanySettingsPage from '@/pages/admin/CompanySettingsPage'
 import GlobalAdminPage from '@/pages/admin/GlobalAdminPage'
 
+// Onboarding
+import AcceptInvitePage from '@/pages/auth/AcceptInvitePage'
+import OnboardingWizardPage from '@/pages/onboarding/OnboardingWizardPage'
+
 // Legacy stubs (kept for backwards-compat until fully migrated)
 import AgentMonitorPage from '@/pages/agents/AgentMonitorPage'
 import SchedulerPage from '@/pages/scheduler/SchedulerPage'
@@ -72,6 +76,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<CallbackPage />} />
       <Route path="/unauthorized" element={<UnauthorizedPage />} />
+      <Route path="/accept-invite" element={<AcceptInvitePage />} />
 
       {/* ── Protected (AppShell + SystemProvider) ──────────────────── */}
       <Route
@@ -141,6 +146,9 @@ export default function App() {
         <Route path="admin/users" element={<UsersPage />} />
         <Route path="admin/company" element={<CompanySettingsPage />} />
         <Route path="admin/global" element={<GlobalAdminPage />} />
+
+        {/* Onboarding wizard */}
+        <Route path="onboarding" element={<OnboardingWizardPage />} />
 
         {/* Legacy stubs */}
         <Route path="agent_monitor" element={<AgentMonitorPage />} />

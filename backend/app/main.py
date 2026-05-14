@@ -22,6 +22,7 @@ from app.routers import (
     auth,
     evidence,
     health,
+    onboarding,
     reports,
     requirements,
     scheduler,
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     app.include_router(scheduler.router, prefix=PREFIX)
     app.include_router(evidence.router, prefix=PREFIX)
     app.include_router(reports.router, prefix=PREFIX)
+    app.include_router(onboarding.router, prefix=PREFIX)
 
     return app
 

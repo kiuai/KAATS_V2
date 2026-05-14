@@ -40,6 +40,12 @@ param allowedOrigins string
 param appInsightsConnectionString string
 param serviceBusNamespaceFqdn string
 
+@description('ACS sender address (From: field in invitation emails)')
+param acsSenderAddress string = ''
+
+@description('Frontend base URL for invitation links')
+param frontendBaseUrl string = 'https://app.kaats.kiu.ai'
+
 @description('Environment label')
 param environment string
 
@@ -59,6 +65,7 @@ var kvSecrets = [
   { name: 'azure-service-bus-connection-string', kvPath: 'secrets/azure-service-bus-connection-string' }
   { name: 'azure-storage-account-key',         kvPath: 'secrets/azure-storage-account-key' }
   { name: 'azure-sql-password',                kvPath: 'secrets/azure-sql-password' }
+  { name: 'acs-connection-string',             kvPath: 'secrets/acs-connection-string' }
 ]
 
 var secretsArray = [for s in kvSecrets: {
@@ -99,6 +106,9 @@ var commonEnvWithSecrets = concat(commonEnv, [
   { name: 'AZURE_SERVICE_BUS_CONNECTION_STRING', secretRef: 'azure-service-bus-connection-string' }
   { name: 'AZURE_STORAGE_ACCOUNT_KEY',         secretRef: 'azure-storage-account-key' }
   { name: 'AZURE_SQL_PASSWORD',                secretRef: 'azure-sql-password' }
+  { name: 'ACS_CONNECTION_STRING',             secretRef: 'acs-connection-string' }
+  { name: 'ACS_SENDER_ADDRESS',               value: acsSenderAddress }
+  { name: 'FRONTEND_BASE_URL',                value: frontendBaseUrl }
 ])
 
 // ─────────────────────────────────────────────────────────────────────────────

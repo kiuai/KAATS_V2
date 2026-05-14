@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     # OpenTelemetry service name — overridden per container (api/worker/scheduler).
     otel_service_name: str = "kaats-api"
 
+    # ── Azure Communication Services ──────────────────────────────────────────
+    acs_connection_string: str | None = None
+    acs_sender_address: str | None = None
+
+    # ── Frontend ──────────────────────────────────────────────────────────────
+    frontend_base_url: str = "https://app.kaats.kiu.ai"
+
     # ── Feature flags ─────────────────────────────────────────────────────────
     openapi_enabled: bool = True  # disabled in production via override
 

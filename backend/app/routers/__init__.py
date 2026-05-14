@@ -3,6 +3,7 @@ from app.routers import (
     auth,
     evidence,
     health,
+    onboarding,
     reports,
     requirements,
     scheduler,
@@ -14,6 +15,7 @@ from app.routers import (
 )
 
 __all__ = [
-    "agents", "auth", "evidence", "health", "reports", "requirements",
-    "scheduler", "systems", "tenants", "test_cycles", "test_scripts", "users",
+    "agents", "auth", "evidence", "health", "onboarding", "reports",
+    "requirements", "scheduler", "systems", "tenants", "test_cycles",
+    "test_scripts", "users",
 ]

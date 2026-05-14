@@ -320,6 +320,9 @@ module containerApps 'modules/container-apps.bicep' = {
     alwaysOn: alwaysOn
     // Service Bus
     serviceBusNamespaceFqdn: serviceBus.outputs.namespaceFqdn
+    // ACS
+    acsSenderAddress: acsSenderAddress
+    frontendBaseUrl: frontendBaseUrl
   }
 }
 
@@ -351,6 +354,28 @@ module containerAppsJobs 'modules/container-apps-jobs.bicep' = {
     serviceBusNamespaceFqdn: serviceBus.outputs.namespaceFqdn
     serviceBusQueueName: serviceBus.outputs.agentJobsQueueName
     environment: environment
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Azure Communication Services (email invitations)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@description('Sender address shown in invitation emails (must be a verified ACS domain)')
+param acsSenderAddress string = 'noreply@kaats.kiu.ai'
+
+@description('Public URL of the frontend app — embedded in invitation email links')
+param frontendBaseUrl string = 'https://kaats.kiu.ai'
+
+module communicationServices 'modules/communication-services.bicep' = {
+  name: 'communication-services'
+  scope: rg
+  params: {
+    location: location
+    suffix: suffix
+    keyVaultId: keyVault.outputs.vaultId
+    managedIdentityPrincipalId: identity.outputs.principalId
+    senderAddress: acsSenderAddress
   }
 }
 
