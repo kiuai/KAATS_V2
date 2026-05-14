@@ -126,14 +126,18 @@ async def _check_cosmos() -> dict[str, Any]:
 
 async def _check_service_bus() -> dict[str, Any]:
     try:
-        from azure.servicebus.management.aio import ServiceBusAdministrationClient
+        from azure.servicebus.management import ServiceBusAdministrationClient
         from app.config import get_settings
         settings = get_settings()
+        conn_str = settings.azure_service_bus_connection_string
+
+        def _sync_check() -> None:
+            with ServiceBusAdministrationClient.from_connection_string(conn_str) as admin:
+                admin.get_namespace_properties()
+
         async with asyncio.timeout(2.0):
-            async with ServiceBusAdministrationClient.from_connection_string(
-                settings.azure_service_bus_connection_string,
-            ) as admin_client:
-                await admin_client.get_namespace_properties()
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _sync_check)
         return {"status": "ok"}
     except TimeoutError:
         return {"status": "degraded", "error": "timeout"}
