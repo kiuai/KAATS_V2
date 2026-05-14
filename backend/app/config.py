@@ -56,6 +56,10 @@ class Settings(BaseSettings):
         url = self.database_url
         # Swap pyodbc driver for aioodbc (async-compatible)
         url = url.replace("mssql+pyodbc://", "mssql+aioodbc://", 1)
+        # For user-assigned MSI, inject UID so the driver picks the right identity
+        if "authentication=ActiveDirectoryMsi" in url.lower() and "uid=" not in url.lower():
+            if self.azure_client_id:
+                url = f"{url}&UID={self.azure_client_id}"
         if "LoginTimeout=" not in url:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}LoginTimeout={self.db_login_timeout}"
