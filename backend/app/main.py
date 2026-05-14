@@ -9,12 +9,18 @@ import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.agents.browser_pool import close_browser_pool, init_browser_pool
 from app.blob import close_blob, init_blob
 from app.config import get_settings
 from app.cosmos import close_cosmos, init_cosmos
 from app.database import close_db, init_db
+from app.middleware.body_size import ContentSizeLimitMiddleware
+from app.middleware.rate_limit import limiter
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.tenant import TenantMiddleware
 from app.observability import configure_logging, configure_telemetry
 from app.routers import (
@@ -92,6 +98,17 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if settings.openapi_enabled else None,
         lifespan=lifespan,
     )
+
+    # ── Rate limiter ──────────────────────────────────────────────────────────
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
+
+    # ── Security headers ──────────────────────────────────────────────────────
+    app.add_middleware(SecurityHeadersMiddleware)
+
+    # ── Request body size cap ─────────────────────────────────────────────────
+    app.add_middleware(ContentSizeLimitMiddleware)
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     app.add_middleware(

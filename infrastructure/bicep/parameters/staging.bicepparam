@@ -28,6 +28,10 @@ param cosmosDatabaseName = 'kaats'
 param allowedOrigins = 'https://kaats-staging.kiu.ai,https://ca-frontend-kaats-staging.azurecontainerapps.io'
 param imageTag = 'staging'
 
+// Communication Services
+param acsSenderAddress = 'noreply@staging.kaats.kiu.ai'
+param frontendBaseUrl = 'https://kaats-staging.kiu.ai'
+
 // Infrastructure toggles
 param enablePrivateNetworking = false     // add private networking before GA
 param storageSkuName = 'Standard_LRS'

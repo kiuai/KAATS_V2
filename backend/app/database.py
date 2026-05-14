@@ -33,6 +33,7 @@ def _build_engine() -> AsyncEngine:
         max_overflow=20,
         pool_pre_ping=True,
         pool_recycle=1800,
+        pool_timeout=settings.db_pool_timeout,
         echo=not settings.is_production,
     )
 

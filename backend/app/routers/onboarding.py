@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.azure_ad import CurrentUser, get_current_user
 from app.auth.permissions import any_authenticated, can_manage_company
 from app.dependencies import get_current_company_id, get_current_user_id, get_db
+from app.middleware.rate_limit import limiter
 from app.models.enums import InvitationStatus, UserRoleEnum
 from app.models.invitation import InvitationToken
 from app.models.onboarding import CompanyOnboarding
@@ -254,6 +255,7 @@ async def accept_invitation(
     dependencies=[can_manage_company],
     summary="Send an email invitation to a new team member",
 )
+@limiter.limit("20/minute")
 async def create_invitation(
     body: InviteCreate,
     request: Request,

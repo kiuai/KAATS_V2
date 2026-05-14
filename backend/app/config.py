@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     azure_sql_database: str
     azure_sql_username: str
     azure_sql_password: str
+    # Seconds to wait for a new connection to be established (ODBC LoginTimeout).
+    db_login_timeout: int = 30
+    # Seconds to wait for a connection from the pool before raising TimeoutError.
+    db_pool_timeout: int = 30
 
     @property
     def sqlalchemy_url(self) -> str:
@@ -51,6 +55,7 @@ class Settings(BaseSettings):
             f"mssql+aioodbc://{self.azure_sql_username}:{self.azure_sql_password}"
             f"@{self.azure_sql_server}/{self.azure_sql_database}"
             f"?driver={driver}&TrustServerCertificate=yes"
+            f"&LoginTimeout={self.db_login_timeout}"
         )
 
     # ── Azure Cosmos DB ───────────────────────────────────────────────────────

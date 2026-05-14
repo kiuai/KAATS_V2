@@ -28,6 +28,10 @@ param cosmosDatabaseName = 'kaats'
 param allowedOrigins = 'http://localhost:5173,https://ca-frontend-kaats-dev.azurecontainerapps.io'
 param imageTag = 'latest'
 
+// Communication Services
+param acsSenderAddress = 'noreply@dev.kaats.kiu.ai'
+param frontendBaseUrl = 'http://localhost:5173'
+
 // Infrastructure toggles
 param enablePrivateNetworking = false
 param storageSkuName = 'Standard_LRS'

@@ -15,6 +15,7 @@ from app.auth.permissions import (
     require_system_access,
 )
 from app.dependencies import get_current_company_id, get_db
+from app.middleware.rate_limit import limiter
 from app.models.enums import AgentRunStatus
 from app.schemas.agent_run import AgentRunRead, AgentRunWithToolCalls
 from app.services.agent_dispatcher import AgentDispatcher
@@ -48,6 +49,7 @@ class ExecutionTriggerRequest(BaseModel):
     response_model=AgentRunRead,
     status_code=status.HTTP_202_ACCEPTED,
 )
+@limiter.limit("30/minute")
 async def trigger_crawl(
     system_id: UUID,
     body: CrawlTriggerRequest,
@@ -77,6 +79,7 @@ async def trigger_crawl(
     response_model=AgentRunRead,
     status_code=status.HTTP_202_ACCEPTED,
 )
+@limiter.limit("30/minute")
 async def trigger_generation(
     system_id: UUID,
     body: GenerationTriggerRequest,
@@ -111,6 +114,7 @@ async def trigger_generation(
     response_model=AgentRunRead,
     status_code=status.HTTP_202_ACCEPTED,
 )
+@limiter.limit("30/minute")
 async def trigger_execution(
     system_id: UUID,
     body: ExecutionTriggerRequest,

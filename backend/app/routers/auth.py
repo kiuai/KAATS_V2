@@ -18,6 +18,7 @@ from app.auth.azure_ad import (
 from app.auth.permissions import any_authenticated
 from app.config import get_settings
 from app.dependencies import get_db
+from app.middleware.rate_limit import limiter
 from app.models.role import UserRole
 from app.models.tenant import Company
 
@@ -85,7 +86,8 @@ async def login_redirect() -> dict:
 
 
 @router.post("/token", response_model=TokenResponse, status_code=200)
-async def exchange_token(body: TokenRequest) -> TokenResponse:
+@limiter.limit("10/minute")
+async def exchange_token(request: Request, body: TokenRequest) -> TokenResponse:
     """
     Exchange an Azure AD authorization code for an access token.
     The SPA calls this after the OAuth2 redirect with the auth code.
@@ -106,7 +108,9 @@ async def exchange_token(body: TokenRequest) -> TokenResponse:
 
 # Keep the old path as an alias so existing integrations don't break.
 @router.post("/callback", response_model=TokenResponse, include_in_schema=False)
+@limiter.limit("10/minute")
 async def auth_callback(
+    request: Request,
     body: TokenRequest,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -184,7 +188,7 @@ async def auth_callback(
         token = jwt.encode(claims, key="dev-secret", algorithm="HS256")
         return TokenResponse(access_token=token, token_type="bearer", expires_in=86400)
 
-    return await exchange_token(body)
+    return await exchange_token(request, body)
 
 
 @router.get("/me", response_model=MeResponse, dependencies=[any_authenticated])

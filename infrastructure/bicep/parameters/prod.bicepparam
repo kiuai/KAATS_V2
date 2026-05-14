@@ -29,6 +29,10 @@ param cosmosDatabaseName = 'kaats'
 param allowedOrigins = 'https://kaats.kiu.ai'
 param imageTag = 'prod'
 
+// Communication Services
+param acsSenderAddress = 'noreply@kaats.kiu.ai'
+param frontendBaseUrl = 'https://kaats.kiu.ai'
+
 // Infrastructure toggles — full production hardening
 param enablePrivateNetworking = true      // VNet + private endpoints for all data services
 param storageSkuName = 'Standard_ZRS'    // Zone-redundant storage
