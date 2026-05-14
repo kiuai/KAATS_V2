@@ -7,7 +7,6 @@ from typing import Any
 
 from alembic import context
 from sqlalchemy import event, pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.config import get_settings
 from app.models.base import Base
@@ -37,7 +36,10 @@ if config.config_file_name:
 target_metadata = Base.metadata
 
 settings = get_settings()  # type: ignore[call-arg]
-config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)
+# NOTE: We intentionally do NOT call config.set_main_option("sqlalchemy.url", ...)
+# because the odbc_connect URL form contains %-encoded characters that confuse
+# SafeConfigParser's interpolation.  Instead the engine is built directly in
+# run_async_migrations() below.
 
 
 def run_migrations_offline() -> None:
@@ -84,9 +86,12 @@ def _maybe_add_token_injection(engine: Any, url: str, client_id: str) -> None:
 
 
 async def run_async_migrations() -> None:
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    # Build the engine directly so the URL never passes through SafeConfigParser
+    # (which chokes on %-encoded characters in the odbc_connect form).
+    connectable = create_async_engine(
+        settings.sqlalchemy_url,
         poolclass=pool.NullPool,
     )
     _maybe_add_token_injection(connectable, settings.database_url, settings.azure_client_id)
