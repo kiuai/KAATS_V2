@@ -164,7 +164,7 @@ export default function ImportRequirementsPage() {
       setItems(
         data.map((p, i) => ({
           ...p,
-          business_domain: p.business_domain ?? defaultDomain || null,
+          business_domain: (p.business_domain ?? defaultDomain) || null,
           _key: `preview-${i}-${Date.now()}`,
           _expanded: false,
         })),
