@@ -114,7 +114,7 @@ async def update_script(
     body: TestScriptUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
-    _perm=Depends(any_authenticated),
+    _perm=any_authenticated,
 ) -> TestScriptRead:
     """Update a script. Auto-creates a version record for audit trail."""
     return await TestScriptService(db).update_with_version(
@@ -161,7 +161,7 @@ async def approve_script(
     script_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
-    _perm=Depends(any_authenticated),
+    _perm=any_authenticated,
 ) -> TestScriptRead:
     """Approve a script (requires SCRIPT_APPROVE permission)."""
     _check_permission(current_user, Permission.SCRIPT_APPROVE)
@@ -177,7 +177,7 @@ async def reject_script(
     body: TestScriptRejectBody,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
-    _perm=Depends(any_authenticated),
+    _perm=any_authenticated,
 ) -> TestScriptRead:
     """Reject a script back to DRAFT with a mandatory comment."""
     _check_permission(current_user, Permission.SCRIPT_APPROVE)
@@ -229,7 +229,7 @@ async def export_script(
     format: str = Query(default="playwright"),
     db: AsyncSession = Depends(get_db),
     company=Depends(get_tenant_context),
-    _perm=Depends(any_authenticated),
+    _perm=any_authenticated,
 ) -> RedirectResponse:
     """Export a single script. Redirects to a 1-hour SAS download URL."""
     from app.services.export_service import ExportService
@@ -250,7 +250,7 @@ async def export_bulk(
     body: BulkExportRequest,
     db: AsyncSession = Depends(get_db),
     company=Depends(get_tenant_context),
-    _perm=Depends(any_authenticated),
+    _perm=any_authenticated,
 ) -> BulkExportResultRead:
     """Export multiple scripts as a ZIP archive. Returns a 1-hour SAS URL."""
     from app.services.export_service import ExportService
@@ -277,7 +277,7 @@ async def export_cycle(
     format: str = Query(default="playwright"),
     db: AsyncSession = Depends(get_db),
     company=Depends(get_tenant_context),
-    _perm=Depends(any_authenticated),
+    _perm=any_authenticated,
 ) -> RedirectResponse:
     """Export all APPROVED scripts in a test cycle as a ZIP. Redirects to SAS URL."""
     from app.services.export_service import ExportService
