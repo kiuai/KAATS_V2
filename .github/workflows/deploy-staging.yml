@@ -1,0 +1,206 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KAATS — Deploy to Staging
+# Triggers automatically after build.yml succeeds on main.
+# Updates all Container Apps, runs migrations, smoke-tests, Slack notification.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy — Staging
+
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false   # finish the current deploy before starting the next
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  ENVIRONMENT: staging
+  RG_NAME: rg-kaats-staging
+  APP_SUFFIX: kaats-staging
+
+jobs:
+  # ── Guard: only run if Build passed ─────────────────────────────────────────
+  check-build:
+    name: Check build outcome
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - run: echo "Build passed — proceeding to staging deploy"
+
+  deploy:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    needs: check-build
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      # ── OIDC Azure login ───────────────────────────────────────────────
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── Update Container Apps ──────────────────────────────────────────
+      - name: Update API revision
+        run: |
+          az containerapp update \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/api:${{ steps.tag.outputs.sha }}" \
+            --output none
+
+      - name: Update Worker revision
+        run: |
+          az containerapp update \
+            --name "ca-worker-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/worker:${{ steps.tag.outputs.sha }}" \
+            --output none
+
+      - name: Update Scheduler revision
+        run: |
+          az containerapp update \
+            --name "ca-scheduler-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/scheduler:${{ steps.tag.outputs.sha }}" \
+            --output none
+
+      - name: Update Frontend revision
+        run: |
+          az containerapp update \
+            --name "ca-frontend-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/frontend:${{ steps.tag.outputs.sha }}" \
+            --output none
+
+      - name: Update agent-runner Job image
+        run: |
+          az containerapp job update \
+            --name "job-agent-runner-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/worker:${{ steps.tag.outputs.sha }}" \
+            --output none
+
+      # ── Wait for API to stabilise ──────────────────────────────────────
+      - name: Wait for API readiness
+        run: |
+          API_URL=$(az containerapp show \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "API_URL=https://${API_URL}" >> "$GITHUB_ENV"
+
+          echo "Waiting for API at https://${API_URL}/health/ready …"
+          for i in $(seq 1 24); do
+            STATUS=$(curl -sL -o /dev/null -w '%{http_code}' \
+              --max-time 10 "https://${API_URL}/health/ready" 2>/dev/null || echo '000')
+            if [[ "${STATUS}" == "200" ]]; then
+              echo "API ready (HTTP ${STATUS})"
+              break
+            fi
+            echo "Attempt ${i}/24: HTTP ${STATUS} — waiting 15s…"
+            sleep 15
+            if [[ "${i}" -eq 24 ]]; then
+              echo "API did not become ready in time"
+              exit 1
+            fi
+          done
+
+      # ── Run database migrations ────────────────────────────────────────
+      - name: Run Alembic migrations
+        run: |
+          REPLICA=$(az containerapp replica list \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --query "[?properties.runningState=='Running'] | [0].name" \
+            --output tsv)
+
+          echo "Running migrations on replica: ${REPLICA}"
+          az containerapp exec \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --replica "${REPLICA}" \
+            --container api \
+            --command "alembic -c /app/alembic.ini upgrade head"
+
+      # ── Smoke tests ────────────────────────────────────────────────────
+      - name: Smoke tests
+        run: |
+          set -e
+          echo "→ API liveness"
+          curl -sSf "${API_URL}/health/live" | grep -q '"status"'
+
+          echo "→ API readiness"
+          curl -sSf "${API_URL}/health/ready" | grep -q '"status"'
+
+          echo "→ Auth endpoint returns 401 (not 500)"
+          STATUS=$(curl -sL -o /dev/null -w '%{http_code}' "${API_URL}/api/v1/auth/me")
+          [[ "${STATUS}" == "401" ]] || (echo "Expected 401, got ${STATUS}"; exit 1)
+
+          FRONTEND_URL=$(az containerapp show \
+            --name "ca-frontend-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          echo "→ Frontend returns 200"
+          curl -sSf --max-time 15 "https://${FRONTEND_URL}" -o /dev/null
+
+          echo "All smoke tests passed"
+
+      # ── Slack notification ─────────────────────────────────────────────
+      - name: Notify Slack — success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "✅ *Staging deploy succeeded*",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  { "title": "Environment", "value": "staging", "short": true },
+                  { "title": "Image tag",   "value": "${{ steps.tag.outputs.sha }}", "short": true },
+                  { "title": "Triggered by", "value": "${{ github.actor }}", "short": true },
+                  { "title": "Commit", "value": "<https://github.com/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>", "short": true },
+                  { "title": "API", "value": "${{ env.API_URL }}", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify Slack — failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "❌ *Staging deploy FAILED*",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  { "title": "Environment", "value": "staging", "short": true },
+                  { "title": "Image tag",   "value": "${{ steps.tag.outputs.sha }}", "short": true },
+                  { "title": "Triggered by", "value": "${{ github.actor }}", "short": true },
+                  { "title": "Workflow run", "value": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

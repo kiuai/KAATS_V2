@@ -1,0 +1,268 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KAATS — Daily Security Audit
+# Runs at 02:00 UTC every day. Scans all images in ACR with Trivy,
+# audits Python and JS dependencies. Creates a GitHub Issue and Slack alert
+# if critical CVEs are found.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Security Audit
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:     # allow manual trigger
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+  issues: write
+
+jobs:
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── OIDC Azure login (for ACR pull) ───────────────────────────────
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: ACR login
+        run: az acr login --name ${{ secrets.ACR_LOGIN_SERVER }}
+
+      # ── Trivy: scan all images ─────────────────────────────────────────
+      - name: Install Trivy
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Trivy scan — api
+        id: trivy-api
+        continue-on-error: true
+        run: |
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --format sarif \
+            --output trivy-api.sarif \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/api:latest"
+
+      - name: Trivy scan — worker
+        id: trivy-worker
+        continue-on-error: true
+        run: |
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --format sarif \
+            --output trivy-worker.sarif \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/worker:latest"
+
+      - name: Trivy scan — scheduler
+        id: trivy-scheduler
+        continue-on-error: true
+        run: |
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --format sarif \
+            --output trivy-scheduler.sarif \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/scheduler:latest"
+
+      - name: Trivy scan — frontend
+        id: trivy-frontend
+        continue-on-error: true
+        run: |
+          trivy image \
+            --exit-code 1 \
+            --severity CRITICAL,HIGH \
+            --format sarif \
+            --output trivy-frontend.sarif \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/frontend:latest"
+
+      - name: Upload Trivy SARIF results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .
+          category: trivy
+
+      # ── Python dependency audit ────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install Python deps
+        working-directory: backend
+        run: pip install -e . pip-audit
+
+      - name: pip-audit
+        id: pip-audit
+        continue-on-error: true
+        working-directory: backend
+        run: |
+          pip-audit -r <(pip freeze) \
+            --format json \
+            --output pip-audit-results.json \
+          || echo "pip-audit found vulnerabilities"
+          cat pip-audit-results.json
+
+      - name: Upload pip-audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-results
+          path: backend/pip-audit-results.json
+
+      # ── npm audit ─────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: npm install
+        working-directory: frontend
+        run: npm ci
+
+      - name: npm audit
+        id: npm-audit
+        continue-on-error: true
+        working-directory: frontend
+        run: |
+          npm audit --audit-level=high --json > npm-audit-results.json || true
+          CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' npm-audit-results.json)
+          HIGH=$(jq '.metadata.vulnerabilities.high // 0' npm-audit-results.json)
+          echo "critical=${CRITICAL}" >> "$GITHUB_OUTPUT"
+          echo "high=${HIGH}" >> "$GITHUB_OUTPUT"
+          if [[ "${CRITICAL}" -gt 0 ]] || [[ "${HIGH}" -gt 0 ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload npm audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-results
+          path: frontend/npm-audit-results.json
+
+      # ── Determine overall severity ─────────────────────────────────────
+      - name: Evaluate results
+        id: evaluate
+        run: |
+          CRITICAL_FOUND=false
+
+          # Check Trivy exit codes
+          if [[ "${{ steps.trivy-api.outcome }}" == "failure" ]] || \
+             [[ "${{ steps.trivy-worker.outcome }}" == "failure" ]] || \
+             [[ "${{ steps.trivy-scheduler.outcome }}" == "failure" ]] || \
+             [[ "${{ steps.trivy-frontend.outcome }}" == "failure" ]]; then
+            CRITICAL_FOUND=true
+            echo "Trivy found CRITICAL/HIGH CVEs in one or more images"
+          fi
+
+          # Check npm audit
+          if [[ "${{ steps.npm-audit.outputs.found }}" == "true" ]]; then
+            CRITICAL_FOUND=true
+            echo "npm audit found critical/high vulnerabilities"
+          fi
+
+          echo "critical_found=${CRITICAL_FOUND}" >> "$GITHUB_OUTPUT"
+
+      # ── Create GitHub Issue if critical CVEs found ────────────────────
+      - name: Create GitHub Issue for critical CVEs
+        if: steps.evaluate.outputs.critical_found == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().split('T')[0];
+            // Check if an open issue for today already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'security,automated',
+              state: 'open',
+            });
+            const existing = issues.data.find(i => i.title.includes(today));
+            if (existing) {
+              console.log('Issue already exists for today — skipping creation');
+              return;
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔐 Security audit: critical/high CVEs found (${today})`,
+              body: [
+                '## Daily Security Audit — Critical/High Vulnerabilities Found',
+                '',
+                `**Date:** ${today}`,
+                `**Workflow run:** https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                '',
+                '## Findings',
+                '',
+                '| Scanner | Status |',
+                '|---|---|',
+                `| Trivy (api)       | ${{ steps.trivy-api.outcome }} |`,
+                `| Trivy (worker)    | ${{ steps.trivy-worker.outcome }} |`,
+                `| Trivy (scheduler) | ${{ steps.trivy-scheduler.outcome }} |`,
+                `| Trivy (frontend)  | ${{ steps.trivy-frontend.outcome }} |`,
+                `| npm audit         | critical=${{ steps.npm-audit.outputs.critical }}, high=${{ steps.npm-audit.outputs.high }} |`,
+                '',
+                '## Action Required',
+                '1. Review the SARIF results in the Security tab',
+                '2. Download the audit artifacts from the workflow run',
+                '3. Update affected dependencies',
+                '4. Close this issue once resolved',
+              ].join('\n'),
+              labels: ['security', 'automated'],
+            });
+
+      # ── Slack alert ────────────────────────────────────────────────────
+      - name: Slack alert — critical CVEs
+        if: steps.evaluate.outputs.critical_found == 'true'
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🔐 *KAATS Security Audit: Critical/High CVEs found*",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  { "title": "Trivy API",       "value": "${{ steps.trivy-api.outcome }}", "short": true },
+                  { "title": "Trivy Worker",    "value": "${{ steps.trivy-worker.outcome }}", "short": true },
+                  { "title": "npm critical",    "value": "${{ steps.npm-audit.outputs.critical }}", "short": true },
+                  { "title": "npm high",        "value": "${{ steps.npm-audit.outputs.high }}", "short": true },
+                  { "title": "Workflow run",    "value": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View details>", "short": false }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Slack alert — all clear
+        if: steps.evaluate.outputs.critical_found == 'false'
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "✅ *KAATS daily security audit: no critical CVEs*",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  { "title": "Date", "value": "${{ github.run_started_at }}", "short": true },
+                  { "title": "Scanned", "value": "api, worker, scheduler, frontend", "short": true }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

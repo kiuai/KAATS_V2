@@ -1,0 +1,195 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KAATS — PR Preview Environments
+# On open/sync: deploys an ephemeral Container App revision (0% traffic) and
+# comments the direct revision URL on the PR.
+# On close: deactivates and deletes the preview revision.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  RG_NAME: rg-kaats-staging
+  APP_SUFFIX: kaats-staging
+  PR_LABEL: pr-${{ github.event.pull_request.number }}
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Deploy preview revision
+  # ─────────────────────────────────────────────────────────────────────────
+  deploy-preview:
+    name: Deploy PR preview
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tag
+        id: tag
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── Check image exists; fall back to 'latest' if SHA not built yet ──
+      - name: Resolve available image tag
+        id: image-tag
+        run: |
+          TAG="${{ steps.tag.outputs.sha }}"
+          EXISTS=$(az acr repository show-tags \
+            --name "${{ secrets.ACR_LOGIN_SERVER }}" \
+            --repository "kaats/api" \
+            --query "contains(@, '${TAG}')" -o tsv 2>/dev/null || echo "false")
+          if [[ "${EXISTS}" == "true" ]]; then
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "No image for SHA ${TAG} — using :latest"
+          fi
+
+      # ── Deploy preview revision of the API (frontend optional) ──────────
+      - name: Deploy preview revision
+        id: preview
+        run: |
+          LABEL="${{ env.PR_LABEL }}"
+          TAG="${{ steps.image-tag.outputs.tag }}"
+
+          # Deploy new revision with 0% traffic weight
+          az containerapp revision copy \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/api:${TAG}" \
+            --revision-suffix "${LABEL}" \
+            --set-env-vars "PR_NUMBER=${{ github.event.pull_request.number }}" \
+            --output none
+
+          # Get the direct revision FQDN (bypasses traffic weights)
+          sleep 15   # allow revision to provision
+          FQDN=$(az containerapp revision list \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --query "[?contains(name,'${LABEL}')] | [0].properties.fqdn" \
+            -o tsv)
+
+          echo "preview_url=https://${FQDN}" >> "$GITHUB_OUTPUT"
+
+      # ── Comment on PR ────────────────────────────────────────────────────
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const previewUrl = '${{ steps.preview.outputs.preview_url }}';
+            const tag = '${{ steps.image-tag.outputs.tag }}';
+            const body = [
+              '## 🔎 Preview Environment',
+              '',
+              `A preview revision has been deployed for this PR. Traffic weight is **0%** — access via the direct revision URL only.`,
+              '',
+              `| | |`,
+              `|---|---|`,
+              `| **API preview** | [${previewUrl}](${previewUrl}) |`,
+              `| **Health** | [${previewUrl}/health/live](${previewUrl}/health/live) |`,
+              `| **Image tag** | \`${tag}\` |`,
+              `| **PR label** | \`${{ env.PR_LABEL }}\` |`,
+              '',
+              '### How to test',
+              '```bash',
+              `curl -H "Authorization: Bearer <token>" \\`,
+              `  ${previewUrl}/api/v1/systems`,
+              '```',
+              '',
+              '_This comment is updated on every push. The revision is deleted when the PR closes._',
+            ].join('\n');
+
+            // Find and update existing comment, or create new one
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.data.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Preview Environment')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Cleanup preview revision on PR close
+  # ─────────────────────────────────────────────────────────────────────────
+  cleanup-preview:
+    name: Cleanup PR preview
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deactivate preview revision
+        run: |
+          LABEL="${{ env.PR_LABEL }}"
+          # Find the revision name that matches the PR label
+          REVISION=$(az containerapp revision list \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --query "[?contains(name,'${LABEL}')] | [0].name" \
+            -o tsv 2>/dev/null || echo "")
+
+          if [[ -n "${REVISION}" ]]; then
+            echo "Deactivating revision: ${REVISION}"
+            az containerapp revision deactivate \
+              --name "ca-api-${{ env.APP_SUFFIX }}" \
+              --resource-group "${{ env.RG_NAME }}" \
+              --revision "${REVISION}" \
+              --output none
+            echo "Preview revision deactivated"
+          else
+            echo "No preview revision found for label ${LABEL} — nothing to clean up"
+          fi
+
+      - name: Comment cleanup notice on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '🧹 Preview environment for `${{ env.PR_LABEL }}` has been deactivated.',
+            });

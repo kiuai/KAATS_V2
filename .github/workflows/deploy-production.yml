@@ -1,0 +1,436 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# KAATS — Deploy to Production
+# Triggered manually (workflow_dispatch) or on version tags (v*.*.*).
+# Requires approval from the "production-approvers" GitHub environment.
+# Uses blue-green deployment with automatic rollback on error-rate breach.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Deploy — Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Image tag to deploy (git SHA short, e.g. abc1234). Leave blank to use HEAD.'
+        required: false
+        default: ''
+      force_deploy:
+        description: 'Skip traffic-shift error monitoring (emergency use only)'
+        type: boolean
+        default: false
+
+  push:
+    tags:
+      - 'v*.*.*'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: write     # create GitHub Release
+  id-token: write     # OIDC
+  issues: write       # create rollback issue
+
+env:
+  ENVIRONMENT: prod
+  RG_NAME: rg-kaats-prod
+  APP_SUFFIX: kaats-prod
+  # Error rate threshold for blue-green rollback (percent)
+  ERROR_RATE_THRESHOLD: '1'
+  # Minutes to observe before full cut-over
+  OBSERVATION_MINUTES: '5'
+
+jobs:
+  deploy:
+    name: Blue-green deploy to production
+    runs-on: ubuntu-latest
+    environment: production   # requires approval from "production-approvers"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0    # full history for changelog generation
+
+      # ── Resolve image tag ──────────────────────────────────────────────
+      - name: Resolve image tag
+        id: tag
+        run: |
+          if [[ -n "${{ github.event.inputs.image_tag }}" ]]; then
+            echo "sha=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── OIDC Azure login ───────────────────────────────────────────────
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ── Verify image exists in ACR ─────────────────────────────────────
+      - name: Verify image exists in ACR
+        run: |
+          TAG="${{ steps.tag.outputs.sha }}"
+          for IMAGE in api worker scheduler frontend; do
+            az acr repository show-tags \
+              --name "${{ secrets.ACR_LOGIN_SERVER }}" \
+              --repository "kaats/${IMAGE}" \
+              --query "contains(@, '${TAG}')" -o tsv \
+            | grep -q true || {
+              echo "Image kaats/${IMAGE}:${TAG} not found in ACR"
+              exit 1
+            }
+          done
+          echo "All images verified in ACR"
+
+      # ────────────────────────────────────────────────────────────────────
+      # Blue-green: Step 1 — deploy new revision with 0% traffic
+      # ────────────────────────────────────────────────────────────────────
+      - name: Deploy blue revision (0% traffic)
+        id: blue-revision
+        run: |
+          TAG="${{ steps.tag.outputs.sha }}"
+          LABEL="blue-${TAG}"
+
+          deploy_blue() {
+            local app="$1" image="$2"
+            az containerapp revision copy \
+              --name "${app}" \
+              --resource-group "${{ env.RG_NAME }}" \
+              --image "${image}" \
+              --revision-suffix "${LABEL}" \
+              --output none
+            # Set new revision weight to 0
+            az containerapp ingress traffic set \
+              --name "${app}" \
+              --resource-group "${{ env.RG_NAME }}" \
+              --revision-weight "latest=0" \
+              --output none
+          }
+
+          deploy_blue "ca-api-${{ env.APP_SUFFIX }}" \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/api:${TAG}"
+          deploy_blue "ca-worker-${{ env.APP_SUFFIX }}" \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/worker:${TAG}"
+          deploy_blue "ca-scheduler-${{ env.APP_SUFFIX }}" \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/scheduler:${TAG}"
+          deploy_blue "ca-frontend-${{ env.APP_SUFFIX }}" \
+            "${{ secrets.ACR_LOGIN_SERVER }}/kaats/frontend:${TAG}"
+
+          # Retrieve the blue revision FQDN for direct smoke testing
+          BLUE_FQDN=$(az containerapp revision list \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --query "[?contains(name,'${LABEL}')] | [0].properties.fqdn" \
+            -o tsv)
+          echo "blue_fqdn=${BLUE_FQDN}" >> "$GITHUB_OUTPUT"
+          echo "label=${LABEL}" >> "$GITHUB_OUTPUT"
+
+      # ────────────────────────────────────────────────────────────────────
+      # Blue-green: Step 2 — smoke test the blue revision directly
+      # ────────────────────────────────────────────────────────────────────
+      - name: Smoke test blue revision
+        id: blue-smoke
+        run: |
+          BLUE_URL="https://${{ steps.blue-revision.outputs.blue_fqdn }}"
+          echo "Smoke testing blue at ${BLUE_URL}"
+
+          for i in $(seq 1 18); do
+            STATUS=$(curl -sL -o /dev/null -w '%{http_code}' \
+              --max-time 10 "${BLUE_URL}/health/ready" 2>/dev/null || echo '000')
+            if [[ "${STATUS}" == "200" ]]; then
+              echo "Blue revision ready (HTTP ${STATUS})"
+              break
+            fi
+            echo "Attempt ${i}/18: HTTP ${STATUS} — waiting 10s…"
+            sleep 10
+            [[ "${i}" -eq 18 ]] && { echo "Blue revision not ready — aborting"; exit 1; }
+          done
+
+          # Auth endpoint check
+          AUTH_STATUS=$(curl -sL -o /dev/null -w '%{http_code}' \
+            "${BLUE_URL}/api/v1/auth/me")
+          [[ "${AUTH_STATUS}" == "401" ]] || {
+            echo "Auth endpoint returned ${AUTH_STATUS} (expected 401)"; exit 1
+          }
+          echo "Blue smoke tests passed"
+
+      # ── Run migrations on blue ─────────────────────────────────────────
+      - name: Run Alembic migrations
+        run: |
+          LABEL="${{ steps.blue-revision.outputs.label }}"
+          REPLICA=$(az containerapp replica list \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --revision "ca-api-${{ env.APP_SUFFIX }}--${LABEL}" \
+            --query "[?properties.runningState=='Running'] | [0].name" \
+            --output tsv)
+
+          az containerapp exec \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --revision "ca-api-${{ env.APP_SUFFIX }}--${LABEL}" \
+            --replica "${REPLICA}" \
+            --container api \
+            --command "alembic -c /app/alembic.ini upgrade head"
+
+      # ────────────────────────────────────────────────────────────────────
+      # Blue-green: Step 3 — shift 10% traffic to blue, observe
+      # ────────────────────────────────────────────────────────────────────
+      - name: Shift 10% traffic to blue
+        if: ${{ !github.event.inputs.force_deploy }}
+        run: |
+          az containerapp ingress traffic set \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --label-weight "${{ steps.blue-revision.outputs.label }}=10" \
+            --output none
+          echo "Traffic: 10% blue / 90% old"
+
+      - name: Observe error rate (${{ env.OBSERVATION_MINUTES }} min)
+        id: observe
+        if: ${{ !github.event.inputs.force_deploy }}
+        run: |
+          API_FQDN=$(az containerapp show \
+            --name "ca-api-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          API_URL="https://${API_FQDN}"
+
+          ERRORS=0
+          TOTAL=0
+          END=$(( $(date +%s) + ${{ env.OBSERVATION_MINUTES }} * 60 ))
+
+          while [[ $(date +%s) -lt "${END}" ]]; do
+            STATUS=$(curl -sL -o /dev/null -w '%{http_code}' \
+              --max-time 5 "${API_URL}/health/live" 2>/dev/null || echo '500')
+            TOTAL=$(( TOTAL + 1 ))
+            if [[ "${STATUS}" != "200" ]]; then
+              ERRORS=$(( ERRORS + 1 ))
+              echo "Warning: health returned ${STATUS} (${ERRORS}/${TOTAL})"
+            fi
+            sleep 10
+          done
+
+          RATE=0
+          if [[ "${TOTAL}" -gt 0 ]]; then
+            RATE=$(( ERRORS * 100 / TOTAL ))
+          fi
+          echo "Error rate: ${RATE}% (${ERRORS}/${TOTAL} checks failed)"
+          echo "error_rate=${RATE}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${RATE}" -ge "${{ env.ERROR_RATE_THRESHOLD }}" ]]; then
+            echo "error_rate_breached=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "error_rate_breached=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ────────────────────────────────────────────────────────────────────
+      # Blue-green: Step 4a — cut over 100% to blue
+      # ────────────────────────────────────────────────────────────────────
+      - name: Cut over 100% to blue
+        if: >-
+          ${{ !github.event.inputs.force_deploy &&
+              steps.observe.outputs.error_rate_breached == 'false' }}
+        run: |
+          LABEL="${{ steps.blue-revision.outputs.label }}"
+          for APP in ca-api ca-worker ca-scheduler ca-frontend; do
+            az containerapp ingress traffic set \
+              --name "${APP}-${{ env.APP_SUFFIX }}" \
+              --resource-group "${{ env.RG_NAME }}" \
+              --label-weight "${LABEL}=100" \
+              --output none || true   # scheduler/worker have no ingress — ignore
+          done
+          echo "100% traffic on blue (${LABEL})"
+
+      - name: Force 100% to blue (force_deploy flag)
+        if: ${{ github.event.inputs.force_deploy }}
+        run: |
+          LABEL="${{ steps.blue-revision.outputs.label }}"
+          for APP in ca-api ca-frontend; do
+            az containerapp ingress traffic set \
+              --name "${APP}-${{ env.APP_SUFFIX }}" \
+              --resource-group "${{ env.RG_NAME }}" \
+              --label-weight "${LABEL}=100" \
+              --output none
+          done
+          az containerapp update \
+            --name "ca-worker-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/worker:${{ steps.tag.outputs.sha }}" \
+            --output none
+          az containerapp update \
+            --name "ca-scheduler-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/scheduler:${{ steps.tag.outputs.sha }}" \
+            --output none
+          az containerapp job update \
+            --name "job-agent-runner-${{ env.APP_SUFFIX }}" \
+            --resource-group "${{ env.RG_NAME }}" \
+            --image "${{ secrets.ACR_LOGIN_SERVER }}/kaats/worker:${{ steps.tag.outputs.sha }}" \
+            --output none
+
+      # ────────────────────────────────────────────────────────────────────
+      # Blue-green: Step 4b — ROLLBACK if error rate breached
+      # ────────────────────────────────────────────────────────────────────
+      - name: ROLLBACK — shift 100% back to old revision
+        if: >-
+          ${{ steps.observe.outputs.error_rate_breached == 'true' }}
+        run: |
+          echo "ERROR RATE BREACHED — rolling back"
+          for APP in ca-api ca-frontend; do
+            az containerapp ingress traffic set \
+              --name "${APP}-${{ env.APP_SUFFIX }}" \
+              --resource-group "${{ env.RG_NAME }}" \
+              --revision-weight "latest=100" \
+              --output none || true
+          done
+          echo "Rollback complete — 100% traffic restored to previous revision"
+
+      - name: Create GitHub Issue on rollback
+        if: ${{ steps.observe.outputs.error_rate_breached == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Production deployment rolled back — tag ${{ steps.tag.outputs.sha }}`,
+              body: [
+                '## Automatic Rollback',
+                '',
+                '**Reason:** Error rate exceeded ${{ env.ERROR_RATE_THRESHOLD }}% during blue-green observation window.',
+                '',
+                `**Image tag:** \`${{ steps.tag.outputs.sha }}\``,
+                `**Error rate observed:** ${{ steps.observe.outputs.error_rate }}%`,
+                `**Workflow run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                '',
+                '## Next Steps',
+                '1. Investigate logs in App Insights and Container Apps',
+                '2. Fix the issue and create a new tag',
+                '3. Re-trigger the deploy workflow',
+              ].join('\n'),
+              labels: ['production-incident', 'deployment'],
+            });
+
+      - name: Fail workflow on rollback
+        if: ${{ steps.observe.outputs.error_rate_breached == 'true' }}
+        run: exit 1
+
+      # ────────────────────────────────────────────────────────────────────
+      # Deactivate old revisions
+      # ────────────────────────────────────────────────────────────────────
+      - name: Deactivate old revisions
+        if: success()
+        run: |
+          LABEL="${{ steps.blue-revision.outputs.label }}"
+          for APP in ca-api ca-frontend; do
+            OLD_REVISIONS=$(az containerapp revision list \
+              --name "${APP}-${{ env.APP_SUFFIX }}" \
+              --resource-group "${{ env.RG_NAME }}" \
+              --query "[?!contains(name,'${LABEL}') && properties.active==true].name" \
+              -o tsv)
+            for rev in ${OLD_REVISIONS}; do
+              echo "Deactivating ${rev}"
+              az containerapp revision deactivate \
+                --name "${APP}-${{ env.APP_SUFFIX }}" \
+                --resource-group "${{ env.RG_NAME }}" \
+                --revision "${rev}" \
+                --output none || true
+            done
+          done
+
+      # ────────────────────────────────────────────────────────────────────
+      # Create GitHub Release
+      # ────────────────────────────────────────────────────────────────────
+      - name: Generate changelog
+        id: changelog
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | sed -n '2p')
+          if [[ -z "${PREV_TAG}" ]]; then
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          echo "Changelog since ${PREV_TAG}:"
+          CHANGELOG=$(git log "${PREV_TAG}..HEAD" \
+            --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))" \
+            --merges \
+          | grep -i "Merge pull request" \
+          | sed 's/Merge pull request #\([0-9]*\) from [^ ]* /PR #\1: /' \
+          || git log "${PREV_TAG}..HEAD" \
+               --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))")
+          {
+            echo "changelog<<EOF"
+            echo "${CHANGELOG}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.ref.replace('refs/tags/', '');
+            await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: tag,
+              name: `Release ${tag}`,
+              body: [
+                '## Changes',
+                '${{ steps.changelog.outputs.changelog }}',
+                '',
+                '## Deployment',
+                `- **Image tag:** \`${{ steps.tag.outputs.sha }}\``,
+                `- **Deployed by:** ${{ github.actor }}`,
+                `- **Workflow:** [Run #${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})`,
+              ].join('\n'),
+              draft: false,
+              prerelease: tag.includes('-rc') || tag.includes('-beta'),
+            });
+
+      # ── Slack notification ─────────────────────────────────────────────
+      - name: Notify Slack — success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "🚀 *Production deploy succeeded*",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  { "title": "Tag",          "value": "${{ github.ref_name }}", "short": true },
+                  { "title": "Image",        "value": "${{ steps.tag.outputs.sha }}", "short": true },
+                  { "title": "Deployed by",  "value": "${{ github.actor }}", "short": true },
+                  { "title": "Workflow run", "value": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View>", "short": true }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify Slack — failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          payload: |
+            {
+              "text": "💥 *Production deploy FAILED*",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  { "title": "Tag",          "value": "${{ github.ref_name }}", "short": true },
+                  { "title": "Image",        "value": "${{ steps.tag.outputs.sha }}", "short": true },
+                  { "title": "Deployed by",  "value": "${{ github.actor }}", "short": true },
+                  { "title": "Workflow run", "value": "<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>", "short": true }
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
