@@ -96,6 +96,13 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "--cov=app --cov-report=term-missing --cov-fail-under=80"
+markers = [
+    "unit: pure-Python unit test, no I/O",
+    "integration: test against real DB or full ASGI app",
+    "e2e: end-to-end browser/agent test",
+    "slow: test takes more than a few seconds",
+    "security: security-focused test",
+]
 
 [tool.coverage.run]
 source = ["app"]
