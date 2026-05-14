@@ -24,6 +24,7 @@ from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.middleware.tenant import TenantMiddleware
 from app.observability import configure_logging, configure_telemetry
 from app.routers import (
+    admin,
     agents,
     auth,
     evidence,
@@ -179,6 +180,7 @@ def create_app() -> FastAPI:
     PREFIX = "/api/v1"
     app.include_router(health.router)   # no prefix — /health/live, /health/ready
     app.include_router(auth.router, prefix=PREFIX)
+    app.include_router(admin.router, prefix=PREFIX)
     app.include_router(tenants.router, prefix=PREFIX)
     app.include_router(users.router, prefix=PREFIX)
     app.include_router(systems.router, prefix=PREFIX)

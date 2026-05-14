@@ -400,3 +400,58 @@ export interface ApiError {
     request_id: string | null
   }
 }
+
+// ── Platform Admin ────────────────────────────────────────────────────────
+
+export interface PlatformOverview {
+  total_enterprises: number
+  active_enterprises: number
+  total_companies: number
+  active_companies: number
+  total_users: number
+  agent_runs_this_month: number
+  tokens_this_month: number
+  estimated_cost_usd: string
+}
+
+export interface CompanyAdminRead {
+  id: string
+  name: string
+  slug: string
+  enterprise_id: string
+  enterprise_name: string
+  is_active: boolean
+  plan_tier: string
+  user_count: number
+  system_count: number
+  tokens_this_month: number
+  runs_this_month: number
+  created_at: string
+}
+
+export interface MonthlyUsageSummary {
+  year: number
+  month: number
+  total_tokens: number
+  agent_runs: number
+  estimated_cost_usd: string
+}
+
+export interface CompanyAdminDetail {
+  id: string
+  name: string
+  slug: string
+  enterprise_id: string
+  enterprise_name: string
+  industry: string | null
+  is_active: boolean
+  plan_tier: string
+  monthly_token_limit: number | null
+  monthly_run_limit: number | null
+  user_count: number
+  system_count: number
+  tokens_this_month: number
+  runs_this_month: number
+  created_at: string
+  usage_history: MonthlyUsageSummary[]
+}

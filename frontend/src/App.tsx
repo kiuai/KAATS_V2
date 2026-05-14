@@ -53,6 +53,8 @@ import AIUsagePage from '@/pages/reports/AIUsagePage'
 import UsersPage from '@/pages/admin/UsersPage'
 import CompanySettingsPage from '@/pages/admin/CompanySettingsPage'
 import GlobalAdminPage from '@/pages/admin/GlobalAdminPage'
+import AdminDashboardPage from '@/pages/admin/AdminDashboardPage'
+import AdminCompanyDetailPage from '@/pages/admin/AdminCompanyDetailPage'
 
 // Onboarding
 import AcceptInvitePage from '@/pages/auth/AcceptInvitePage'
@@ -143,6 +145,8 @@ export default function App() {
         <Route path="systems/:systemId/reports/execution-history" element={<ExecutionHistoryPage />} />
 
         {/* Admin */}
+        <Route path="admin" element={<AdminDashboardPage />} />
+        <Route path="admin/companies/:companyId" element={<AdminCompanyDetailPage />} />
         <Route path="admin/users" element={<UsersPage />} />
         <Route path="admin/company" element={<CompanySettingsPage />} />
         <Route path="admin/global" element={<GlobalAdminPage />} />

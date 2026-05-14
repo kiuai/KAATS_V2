@@ -2,7 +2,7 @@ import { NavLink, useParams } from 'react-router-dom'
 import {
   LayoutDashboard, Server, FileText, Code2, ClipboardList,
   Bot, Calendar, Shield, BarChart2, Users, ChevronLeft, ChevronRight,
-  FolderOpen,
+  FolderOpen, ShieldCheck,
 } from 'lucide-react'
 import { useUiStore } from '@/store/uiStore'
 import { usePermission } from '@/hooks/usePermission'
@@ -35,10 +35,11 @@ export default function Sidebar() {
   const { systemId } = useParams<{ systemId?: string }>()
   const { sidebarCollapsed, toggleSidebar } = useUiStore()
 
-  const canSeeAgents  = usePermission('agent:crawl')
-  const canSeeSchedule = usePermission('schedule:read')
-  const canSeeAdmin    = usePermission('admin:company')
-  const canSeeReports  = usePermission('report:read')
+  const canSeeAgents      = usePermission('agent:crawl')
+  const canSeeSchedule    = usePermission('schedule:read')
+  const canSeeAdmin       = usePermission('admin:company')
+  const canSeeReports     = usePermission('report:read')
+  const isPlatformAdmin   = usePermission('admin:global')
 
   const w = sidebarCollapsed ? 'w-16' : 'w-60'
 
@@ -95,6 +96,9 @@ export default function Sidebar() {
         )}
         {!canSeeAdmin && (
           <NavItem to="/admin/users" icon={<Users size={18} />} label="Users" collapsed={sidebarCollapsed} />
+        )}
+        {isPlatformAdmin && (
+          <NavItem to="/admin" icon={<ShieldCheck size={18} />} label="Platform Admin" collapsed={sidebarCollapsed} end />
         )}
       </nav>
     </aside>
