@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +14,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        populate_by_name=True,
     )
 
     # ── Environment ───────────────────────────────────────────────────────────
@@ -31,52 +33,85 @@ class Settings(BaseSettings):
     # ── Azure AD / Entra ID ───────────────────────────────────────────────────
     azure_tenant_id: str
     azure_client_id: str
-    azure_client_secret: str
+    azure_client_secret: str | None = None  # Optional — use MSI when not provided
 
     # ── Azure OpenAI ──────────────────────────────────────────────────────────
-    azure_openai_endpoint: str
-    azure_openai_api_key: str
+    azure_openai_endpoint: str | None = None
+    azure_openai_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("azure_openai_api_key", "openai_api_key"),
+    )
     azure_openai_deployment_name: str = "gpt-4o"
 
-    # ── Azure SQL ─────────────────────────────────────────────────────────────
-    azure_sql_server: str
-    azure_sql_database: str
-    azure_sql_username: str
-    azure_sql_password: str
-    # Seconds to wait for a new connection to be established (ODBC LoginTimeout).
+    # ── Azure SQL — accepts a full connection string ──────────────────────────
+    # Reads from DATABASE_URL or AZURE_SQL_CONNECTION_STRING env var.
+    database_url: str = Field(
+        validation_alias=AliasChoices("database_url", "azure_sql_connection_string"),
+    )
     db_login_timeout: int = 30
-    # Seconds to wait for a connection from the pool before raising TimeoutError.
     db_pool_timeout: int = 30
 
     @property
     def sqlalchemy_url(self) -> str:
-        driver = "ODBC+Driver+18+for+SQL+Server"
-        return (
-            f"mssql+aioodbc://{self.azure_sql_username}:{self.azure_sql_password}"
-            f"@{self.azure_sql_server}/{self.azure_sql_database}"
-            f"?driver={driver}&TrustServerCertificate=yes"
-            f"&LoginTimeout={self.db_login_timeout}"
-        )
+        url = self.database_url
+        # Swap pyodbc driver for aioodbc (async-compatible)
+        url = url.replace("mssql+pyodbc://", "mssql+aioodbc://", 1)
+        if "LoginTimeout=" not in url:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}LoginTimeout={self.db_login_timeout}"
+        return url
 
     # ── Azure Cosmos DB ───────────────────────────────────────────────────────
-    azure_cosmos_endpoint: str
-    azure_cosmos_key: str
+    azure_cosmos_endpoint: str = Field(
+        validation_alias=AliasChoices("azure_cosmos_endpoint", "cosmos_endpoint"),
+    )
+    azure_cosmos_key: str = Field(
+        validation_alias=AliasChoices("azure_cosmos_key", "cosmos_key"),
+    )
     azure_cosmos_database: str = "kaats"
 
     # ── Azure Service Bus ─────────────────────────────────────────────────────
-    azure_service_bus_connection_string: str
+    azure_service_bus_connection_string: str = Field(
+        validation_alias=AliasChoices(
+            "azure_service_bus_connection_string", "service_bus_connection_string"
+        ),
+    )
     service_bus_topic_ai_jobs: str = "ai-jobs"
     service_bus_topic_crawl_jobs: str = "crawl-jobs"
     service_bus_topic_result_events: str = "result-events"
     service_bus_subscription_worker: str = "worker"
 
     # ── Azure Blob Storage ────────────────────────────────────────────────────
-    azure_storage_account_name: str
-    azure_storage_account_key: str
+    # Accepts a full connection string OR individual name + key.
+    # When a full connection string is provided, name and key are parsed from it.
+    azure_storage_conn_str: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "azure_storage_connection_string", "storage_connection_string"
+        ),
+    )
+    azure_storage_account_name: str | None = None
+    azure_storage_account_key: str | None = None
     azure_storage_container_evidence: str = "kaats-evidence"
+
+    @model_validator(mode="after")
+    def _parse_storage_conn_str(self) -> "Settings":
+        """If only a full connection string is provided, extract name and key."""
+        raw = self.azure_storage_conn_str
+        if raw and not self.azure_storage_account_name:
+            name_match = re.search(r"AccountName=([^;]+)", raw, re.IGNORECASE)
+            if name_match:
+                object.__setattr__(self, "azure_storage_account_name", name_match.group(1))
+        if raw and not self.azure_storage_account_key:
+            key_match = re.search(r"AccountKey=([^;]+)", raw, re.IGNORECASE)
+            if key_match:
+                object.__setattr__(self, "azure_storage_account_key", key_match.group(1))
+        return self
 
     @property
     def azure_storage_connection_string(self) -> str:
+        if self.azure_storage_conn_str:
+            return self.azure_storage_conn_str
         return (
             f"DefaultEndpointsProtocol=https;"
             f"AccountName={self.azure_storage_account_name};"
@@ -110,11 +145,8 @@ class Settings(BaseSettings):
     max_concurrent_agents: int = 3
 
     # ── Observability ──────────────────────────────────────────────────────────
-    # Set by Container Apps env var injected from Bicep monitoring.bicep output.
     applicationinsights_connection_string: str | None = None
-    # Optional generic OTLP endpoint (e.g. local Jaeger / Grafana Tempo).
     otlp_endpoint: str | None = None
-    # OpenTelemetry service name — overridden per container (api/worker/scheduler).
     otel_service_name: str = "kaats-api"
 
     # ── Azure Communication Services ──────────────────────────────────────────
@@ -127,12 +159,11 @@ class Settings(BaseSettings):
     # ── Stripe billing ────────────────────────────────────────────────────────
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
-    # Maps plan tier name → Stripe price ID
     stripe_price_pro: str | None = None
     stripe_price_enterprise: str | None = None
 
     # ── Feature flags ─────────────────────────────────────────────────────────
-    openapi_enabled: bool = True  # disabled in production via override
+    openapi_enabled: bool = True
 
     @property
     def is_production(self) -> bool:
