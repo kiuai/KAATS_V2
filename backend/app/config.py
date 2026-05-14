@@ -53,18 +53,29 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_url(self) -> str:
+        import urllib.parse
+
         url = self.database_url
-        # Swap pyodbc driver for aioodbc (async-compatible)
-        url = url.replace("mssql+pyodbc://", "mssql+aioodbc://", 1)
-        # When ActiveDirectoryMsi is present we use azure-identity token injection
-        # (SQL_COPT_SS_ACCESS_TOKEN) instead of the ODBC driver's own MSI flow.
-        # The ODBC driver rejects access-token injection if Authentication= or UID=
-        # are also set, so strip them here.
         if "authentication=activedirectorymsi" in url.lower():
-            url = re.sub(r"[&?]authentication=[^&]*", "", url, flags=re.IGNORECASE)
-            url = re.sub(r"[&?]uid=[^&]*", "", url, flags=re.IGNORECASE)
-            # Clean up any leading & left after stripping (e.g. ?&something)
-            url = re.sub(r"\?&", "?", url)
+            # Use azure-identity token injection (SQL_COPT_SS_ACCESS_TOKEN) instead
+            # of the ODBC driver's own MSI flow.  Build an explicit odbc_connect string
+            # so SQLAlchemy cannot add Trusted_Connection/Integrated Security — those
+            # are incompatible with access-token injection (ODBC error FA005).
+            parsed = urllib.parse.urlparse(url.replace("mssql+pyodbc://", "mssql+aioodbc://", 1))
+            server = parsed.hostname or ""
+            database = parsed.path.lstrip("/")
+            odbc = (
+                f"Driver={{ODBC Driver 18 for SQL Server}};"
+                f"Server=tcp:{server},1433;"
+                f"Database={database};"
+                f"Encrypt=yes;"
+                f"TrustServerCertificate=no;"
+                f"Connection Timeout={self.db_login_timeout};"
+            )
+            return f"mssql+aioodbc:///?odbc_connect={urllib.parse.quote_plus(odbc)}"
+
+        # Non-MSI path: swap driver, add login timeout
+        url = url.replace("mssql+pyodbc://", "mssql+aioodbc://", 1)
         if "LoginTimeout=" not in url:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}LoginTimeout={self.db_login_timeout}"
