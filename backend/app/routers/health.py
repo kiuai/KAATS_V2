@@ -126,19 +126,14 @@ async def _check_cosmos() -> dict[str, Any]:
 
 async def _check_service_bus() -> dict[str, Any]:
     try:
-        from azure.servicebus.aio import ServiceBusClient
+        from azure.servicebus.management.aio import ServiceBusAdministrationClient
         from app.config import get_settings
         settings = get_settings()
         async with asyncio.timeout(2.0):
-            async with ServiceBusClient.from_connection_string(
+            async with ServiceBusAdministrationClient.from_connection_string(
                 settings.azure_service_bus_connection_string,
-            ) as sb_client:
-                # get_queue_runtime_properties is a lightweight management call
-                async with sb_client.get_queue_receiver(
-                    queue_name="health-probe",
-                    max_wait_time=0,
-                ) as receiver:
-                    await receiver.receive_messages(max_message_count=0, max_wait_time=0)
+            ) as admin_client:
+                await admin_client.get_namespace_properties()
         return {"status": "ok"}
     except TimeoutError:
         return {"status": "degraded", "error": "timeout"}
