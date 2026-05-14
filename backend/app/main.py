@@ -62,7 +62,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     log.info("kaats.startup", environment=settings.environment)
 
-    await init_db()
+    try:
+        await init_db()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("database.startup_failed", error=str(exc))
     try:
         await init_cosmos()
     except Exception as exc:  # noqa: BLE001
