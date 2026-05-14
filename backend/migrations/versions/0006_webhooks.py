@@ -75,7 +75,7 @@ def upgrade() -> None:
         sa.Column(
             "company_id",
             mssql.UNIQUEIDENTIFIER(as_uuid=True),
-            sa.ForeignKey("companies.id", ondelete="CASCADE"),
+            sa.ForeignKey("companies.id", ondelete="NO ACTION"),
             nullable=False,
         ),
         sa.Column("event_type", sa.String(100), nullable=False),

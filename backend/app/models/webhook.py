@@ -71,7 +71,7 @@ class WebhookDelivery(Base, UUIDPrimaryKeyMixin):
     )
     company_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True),
-        ForeignKey("companies.id", ondelete="CASCADE"),
+        ForeignKey("companies.id", ondelete="NO ACTION"),
         nullable=False,
         index=True,
     )
