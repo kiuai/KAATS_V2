@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
-import { format } from 'date-fns'
-import api from '@/lib/api'
+import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
+import api from '@/services/api'
 import { usePermission } from '@/hooks/usePermission'
-import AccessDenied from '@/components/common/AccessDenied'
+
+function AccessDenied() {
+  return <div className="p-8 text-center text-gray-400">You don't have permission to view this page.</div>
+}
 
 interface WebhookEndpoint {
   id: string
@@ -109,7 +111,7 @@ function EndpointRow({ ep, onDelete }: { ep: WebhookEndpoint; onDelete: () => vo
                     <td className="py-1 pr-3 text-gray-600">{d.event_type}</td>
                     <td className="py-1 pr-3"><StatusBadge status={d.status} /></td>
                     <td className="py-1 pr-3 font-mono">{d.response_status ?? '—'}</td>
-                    <td className="py-1 text-gray-400">{format(new Date(d.created_at), 'HH:mm:ss MM/dd')}</td>
+                    <td className="py-1 text-gray-400">{new Date(d.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

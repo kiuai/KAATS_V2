@@ -574,7 +574,7 @@ export default function RequirementsPage() {
               Generate Scripts
             </button>
           </RoleGate>
-          <RoleGate permission="content:manage">
+          <RoleGate permission="req:delete">
             <button
               onClick={() => {
                 if (confirm(`Delete ${selectedKeys.size} requirement(s)?`)) {

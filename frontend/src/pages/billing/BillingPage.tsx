@@ -1,9 +1,12 @@
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { CreditCard, ExternalLink, Zap, Building2, Package } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
-import api from '@/lib/api'
+import api from '@/services/api'
 import { usePermission } from '@/hooks/usePermission'
-import AccessDenied from '@/components/common/AccessDenied'
+
+function AccessDenied() {
+  return <div className="p-8 text-center text-gray-400">You don't have permission to view this page.</div>
+}
 
 interface BillingStatus {
   plan_tier: string

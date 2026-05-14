@@ -12,7 +12,7 @@ CMD ["npm", "run", "dev"]
 # ── Build ──────────────────────────────────────────────────────────────────────
 FROM base AS builder
 COPY . .
-RUN npm run build
+RUN npx vite build
 
 # ── Production target ─────────────────────────────────────────────────────────
 FROM nginx:1.26-alpine AS production

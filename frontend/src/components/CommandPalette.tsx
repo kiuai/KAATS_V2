@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Search, Server, FileText, Code2, ClipboardList, Bot } from 'lucide-react'
-import api from '@/lib/api'
+import api from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
 
 interface SearchResult {

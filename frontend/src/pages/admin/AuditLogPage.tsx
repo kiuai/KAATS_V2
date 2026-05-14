@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { format } from 'date-fns'
-import { Search, Filter } from 'lucide-react'
-import api from '@/lib/api'
+import { Filter } from 'lucide-react'
+import api from '@/services/api'
 import { usePermission } from '@/hooks/usePermission'
-import AccessDenied from '@/components/common/AccessDenied'
+
+function AccessDenied() {
+  return <div className="p-8 text-center text-gray-400">You don't have permission to view this page.</div>
+}
 
 interface AuditLog {
   id: string
@@ -103,7 +105,7 @@ export default function AuditLogPage() {
                 {logs.map((log) => (
                   <tr key={log.id} className="hover:bg-gray-50 group">
                     <td className="px-4 py-3 text-gray-500 whitespace-nowrap font-mono text-xs">
-                      {format(new Date(log.created_at), 'yyyy-MM-dd HH:mm:ss')}
+                      {new Date(log.created_at).toLocaleString()}
                     </td>
                     <td className="px-4 py-3">{eventBadge(log.event_type)}</td>
                     <td className="px-4 py-3 text-gray-700 truncate max-w-xs">

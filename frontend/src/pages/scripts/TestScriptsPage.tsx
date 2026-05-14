@@ -6,6 +6,7 @@ import apiClient, { errorMessage } from '@/services/api'
 import type { TestScript, TestScriptStatus, Page } from '@/types'
 import PaginatedTable from '@/components/PaginatedTable'
 import RoleGate from '@/components/RoleGate'
+import { usePermission } from '@/hooks/usePermission'
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -330,7 +331,7 @@ export default function TestScriptsPage() {
               Export Selected
             </button>
           </RoleGate>
-          <RoleGate permission="content:manage">
+          <RoleGate permission="script:delete">
             <button
               onClick={() => {
                 if (confirm(`Delete ${selectedKeys.size} script(s)?`)) {
