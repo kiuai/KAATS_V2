@@ -104,6 +104,14 @@ class AgentDispatcher:
         scheduled_job_id: UUID | None,
         input_config: dict,
     ) -> AgentRun:
+        # ── Quota enforcement ─────────────────────────────────────────────────
+        # Skip quota check for scheduler-triggered runs so the system doesn't
+        # silently drop scheduled jobs mid-month — operators get alerted via the
+        # Monitor alert instead.
+        if not scheduled_job_id:
+            from app.services.usage_service import UsageService
+            await UsageService(self._db).assert_agent_run_allowed(company_id)
+
         trigger_type = (
             AgentTriggerType.SCHEDULED.value
             if scheduled_job_id

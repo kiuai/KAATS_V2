@@ -30,6 +30,7 @@ from app.routers import (
     tenants,
     test_cycles,
     test_scripts,
+    usage,
     users,
 )
 
@@ -172,6 +173,7 @@ def create_app() -> FastAPI:
     app.include_router(evidence.router, prefix=PREFIX)
     app.include_router(reports.router, prefix=PREFIX)
     app.include_router(onboarding.router, prefix=PREFIX)
+    app.include_router(usage.router, prefix=PREFIX)
 
     return app
 

@@ -11,11 +11,12 @@ from app.routers import (
     tenants,
     test_cycles,
     test_scripts,
+    usage,
     users,
 )
 
 __all__ = [
     "agents", "auth", "evidence", "health", "onboarding", "reports",
     "requirements", "scheduler", "systems", "tenants", "test_cycles",
-    "test_scripts", "users",
+    "test_scripts", "usage", "users",
 ]
