@@ -29,7 +29,7 @@ router = APIRouter(tags=["evidence"])
 @router.get(
     "/systems/{system_id}/execution-runs",
     response_model=list[ExecutionRunRead],
-    dependencies=[Depends(require_system_access(Permission.EVIDENCE_READ))],
+    dependencies=[require_system_access(Permission.EVIDENCE_READ)],
 )
 async def list_execution_runs(
     system_id: UUID,

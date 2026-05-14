@@ -27,7 +27,7 @@ router = APIRouter(tags=["scheduler"])
 @router.get(
     "/systems/{system_id}/schedules",
     response_model=list[ScheduledJobRead],
-    dependencies=[Depends(require_system_access(Permission.SCHEDULE_READ))],
+    dependencies=[require_system_access(Permission.SCHEDULE_READ)],
 )
 async def list_schedules(
     system_id: UUID,
@@ -45,7 +45,7 @@ async def list_schedules(
     "/systems/{system_id}/schedules",
     response_model=ScheduledJobRead,
     status_code=201,
-    dependencies=[Depends(require_system_access(Permission.SCHEDULE_CREATE))],
+    dependencies=[require_system_access(Permission.SCHEDULE_CREATE)],
 )
 async def create_schedule(
     system_id: UUID,
@@ -69,7 +69,7 @@ async def create_schedule(
 @router.get(
     "/systems/{system_id}/schedules/{job_id}",
     response_model=ScheduledJobRead,
-    dependencies=[Depends(require_system_access(Permission.SCHEDULE_READ))],
+    dependencies=[require_system_access(Permission.SCHEDULE_READ)],
 )
 async def get_schedule(
     system_id: UUID,
@@ -85,7 +85,7 @@ async def get_schedule(
 @router.patch(
     "/systems/{system_id}/schedules/{job_id}",
     response_model=ScheduledJobRead,
-    dependencies=[Depends(require_system_access(Permission.SCHEDULE_UPDATE))],
+    dependencies=[require_system_access(Permission.SCHEDULE_UPDATE)],
 )
 async def update_schedule(
     system_id: UUID,
@@ -102,7 +102,7 @@ async def update_schedule(
 @router.delete(
     "/systems/{system_id}/schedules/{job_id}",
     response_model=ScheduledJobRead,
-    dependencies=[Depends(require_system_access(Permission.SCHEDULE_DELETE))],
+    dependencies=[require_system_access(Permission.SCHEDULE_DELETE)],
 )
 async def deactivate_schedule(
     system_id: UUID,
@@ -118,7 +118,7 @@ async def deactivate_schedule(
 @router.get(
     "/systems/{system_id}/schedules/{job_id}/runs",
     response_model=list[ScheduledJobRunRead],
-    dependencies=[Depends(require_system_access(Permission.SCHEDULE_READ))],
+    dependencies=[require_system_access(Permission.SCHEDULE_READ)],
 )
 async def list_schedule_runs(
     system_id: UUID,
@@ -135,7 +135,7 @@ async def list_schedule_runs(
     "/systems/{system_id}/schedules/{job_id}/trigger-now",
     response_model=ScheduledJobRunRead,
     status_code=202,
-    dependencies=[Depends(require_system_access(Permission.SCHEDULE_UPDATE))],
+    dependencies=[require_system_access(Permission.SCHEDULE_UPDATE)],
 )
 async def trigger_schedule_now(
     system_id: UUID,
