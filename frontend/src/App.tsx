@@ -5,6 +5,8 @@ import DashboardPage from '@/pages/dashboard/DashboardPage'
 import SystemsPage from '@/pages/systems/SystemsPage'
 import SystemDetailPage from '@/pages/systems/SystemDetailPage'
 import RequirementsPage from '@/pages/requirements/RequirementsPage'
+import RequirementDetailPage from '@/pages/requirements/RequirementDetailPage'
+import ImportRequirementsPage from '@/pages/requirements/ImportRequirementsPage'
 import TestScriptsPage from '@/pages/scripts/TestScriptsPage'
 import TestScriptDetailPage from '@/pages/scripts/TestScriptDetailPage'
 import ExecutionsPage from '@/pages/executions/ExecutionsPage'
@@ -38,7 +40,10 @@ export default function App() {
         <Route path="systems" element={<SystemsPage />} />
         <Route path="systems/:systemId" element={<SystemDetailPage />} />
         <Route path="systems/:systemId/requirements" element={<RequirementsPage />} />
+        <Route path="systems/:systemId/requirements/import" element={<ImportRequirementsPage />} />
+        <Route path="requirements/:requirementId" element={<RequirementDetailPage />} />
         <Route path="systems/:systemId/scripts" element={<TestScriptsPage />} />
+        <Route path="test-scripts/:scriptId" element={<TestScriptDetailPage />} />
         <Route path="scripts/:scriptId" element={<TestScriptDetailPage />} />
         <Route path="scripts/:scriptId/executions" element={<ExecutionsPage />} />
         <Route path="executions/:executionId" element={<ExecutionDetailPage />} />

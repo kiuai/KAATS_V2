@@ -46,3 +46,34 @@ class RequirementUpdate(BaseModel):
     priority: RequirementPriority | None = None
     status: RequirementStatus | None = None
     tags: list[str] | None = None
+
+
+class RequirementWithScripts(RequirementRead):
+    script_count: int = 0
+    approved_script_count: int = 0
+
+
+class RequirementImportPreview(BaseModel):
+    title: str
+    description: str
+    source_type: str = "import"
+    business_domain: str | None = None
+    priority: str = "medium"
+    tags: list[str] | None = None
+
+
+class RequirementImportConfirm(BaseModel):
+    requirements: list[RequirementImportPreview]
+    source_reference: str | None = None
+    business_domain: str | None = None
+
+
+class GenerateScriptBody(BaseModel):
+    export_format: str = "playwright"
+
+
+class QualityCheckResult(BaseModel):
+    score: int
+    grade: str
+    suggestions: list[str]
+    cached: bool = False

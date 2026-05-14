@@ -45,3 +45,21 @@ class SystemUpdate(BaseModel):
     industry_domain: str | None = None
     is_active: bool | None = None
     settings: dict | None = None
+
+
+class SystemStats(BaseModel):
+    requirement_count: int
+    active_requirement_count: int
+    script_count: int
+    approved_script_count: int
+    coverage_pct: float
+    last_crawl_at: datetime | None
+    last_execution_at: datetime | None
+
+
+class SystemDetailRead(SystemRead):
+    stats: SystemStats | None = None
+
+
+class AssignManagerBody(BaseModel):
+    user_id: UUID
