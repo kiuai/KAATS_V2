@@ -51,7 +51,7 @@ async def list_scripts(
     search: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
-    _system=Depends(require_system_access(Permission.SCRIPT_READ)),
+    _system=require_system_access(Permission.SCRIPT_READ),
 ) -> list[TestScriptRead]:
     """List test scripts with optional filters.
     BPO users are automatically restricted to their assigned business_domain."""
@@ -79,7 +79,7 @@ async def create_script(
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
     company=Depends(get_tenant_context),
-    _system=Depends(require_system_access(Permission.SCRIPT_CREATE)),
+    _system=require_system_access(Permission.SCRIPT_CREATE),
 ) -> TestScriptRead:
     """Manually create a test script."""
     return await TestScriptService(db).create_with_context(
