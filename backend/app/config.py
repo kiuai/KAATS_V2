@@ -56,10 +56,15 @@ class Settings(BaseSettings):
         url = self.database_url
         # Swap pyodbc driver for aioodbc (async-compatible)
         url = url.replace("mssql+pyodbc://", "mssql+aioodbc://", 1)
-        # For user-assigned MSI, inject UID so the driver picks the right identity
-        if "authentication=ActiveDirectoryMsi" in url.lower() and "uid=" not in url.lower():
-            if self.azure_client_id:
-                url = f"{url}&UID={self.azure_client_id}"
+        # When ActiveDirectoryMsi is present we use azure-identity token injection
+        # (SQL_COPT_SS_ACCESS_TOKEN) instead of the ODBC driver's own MSI flow.
+        # The ODBC driver rejects access-token injection if Authentication= or UID=
+        # are also set, so strip them here.
+        if "authentication=activedirectorymsi" in url.lower():
+            url = re.sub(r"[&?]authentication=[^&]*", "", url, flags=re.IGNORECASE)
+            url = re.sub(r"[&?]uid=[^&]*", "", url, flags=re.IGNORECASE)
+            # Clean up any leading & left after stripping (e.g. ?&something)
+            url = re.sub(r"\?&", "?", url)
         if "LoginTimeout=" not in url:
             sep = "&" if "?" in url else "?"
             url = f"{url}{sep}LoginTimeout={self.db_login_timeout}"

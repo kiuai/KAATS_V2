@@ -51,7 +51,7 @@ def _build_engine() -> AsyncEngine:
     # implementation (which times out in Container Apps VNet) by injecting a
     # pre-fetched token via SQL_COPT_SS_ACCESS_TOKEN. The token takes precedence
     # over the Authentication= keyword so both can coexist in the connection string.
-    if "authentication=activedirectorymsi" in settings.sqlalchemy_url.lower():
+    if "authentication=activedirectorymsi" in settings.database_url.lower():
         try:
             from azure.identity import ManagedIdentityCredential
 

@@ -64,7 +64,7 @@ def _maybe_add_token_injection(engine: Any, url: str, client_id: str) -> None:
     Works around the ODBC Driver's own MSI implementation timing out in Container
     Apps VNet environments by pre-fetching the token via azure-identity instead.
     """
-    if "authentication=activedirectorymsi" not in url.lower():
+    if "authentication=activedirectorymsi" not in url.lower():  # url is database_url (original)
         return
     try:
         from azure.identity import ManagedIdentityCredential
@@ -89,7 +89,7 @@ async def run_async_migrations() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
-    _maybe_add_token_injection(connectable, settings.sqlalchemy_url, settings.azure_client_id)
+    _maybe_add_token_injection(connectable, settings.database_url, settings.azure_client_id)
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await connectable.dispose()
