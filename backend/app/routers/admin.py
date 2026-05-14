@@ -12,13 +12,15 @@ from decimal import Decimal
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.azure_ad import CurrentUser, get_current_user
 from app.auth.permissions import platform_admin_only
 from app.dependencies import get_db
+from app.services.audit_service import AuditService
 from app.models.agent_run import AgentRun, CompanyTokenUsage
 from app.models.plan import CompanyPlan
 from app.models.role import UserRole
@@ -359,7 +361,9 @@ async def get_company_admin_detail(
 async def update_company_plan(
     company_id: UUID,
     body: PlanPatchBody,
+    request: Request,
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> PlanResponse:
     # Verify company exists
     company = await db.get(Company, company_id)
@@ -382,5 +386,20 @@ async def update_company_plan(
         "admin.plan.updated",
         company_id=str(company_id),
         plan_tier=body.plan_tier,
+    )
+    await AuditService(db).log(
+        event_type="plan.updated",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=company_id,
+        resource_type="plan",
+        resource_id=str(plan.id),
+        changes={
+            "after": {
+                "plan_tier": body.plan_tier,
+                "override_reason": body.override_reason,
+            }
+        },
+        request=request,
     )
     return PlanResponse.model_validate(plan)

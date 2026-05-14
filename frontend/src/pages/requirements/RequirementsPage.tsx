@@ -378,6 +378,15 @@ export default function RequirementsPage() {
   // Selection
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
 
+  const bulkDelete = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiClient.post(`/systems/${systemId}/requirements/bulk-delete`, { ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['requirements', systemId] })
+      setSelectedKeys(new Set())
+    },
+  })
+
   // Modals
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [generateModalOpen, setGenerateModalOpen] = useState(false)
@@ -563,6 +572,19 @@ export default function RequirementsPage() {
             >
               <Zap size={13} />
               Generate Scripts
+            </button>
+          </RoleGate>
+          <RoleGate permission="content:manage">
+            <button
+              onClick={() => {
+                if (confirm(`Delete ${selectedKeys.size} requirement(s)?`)) {
+                  bulkDelete.mutate(Array.from(selectedKeys))
+                }
+              }}
+              disabled={bulkDelete.isPending}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-40"
+            >
+              {bulkDelete.isPending ? 'Deleting…' : 'Delete Selected'}
             </button>
           </RoleGate>
           <button

@@ -2,7 +2,7 @@ import { NavLink, useParams } from 'react-router-dom'
 import {
   LayoutDashboard, Server, FileText, Code2, ClipboardList,
   Bot, Calendar, Shield, BarChart2, Users, ChevronLeft, ChevronRight,
-  FolderOpen, ShieldCheck,
+  FolderOpen, ShieldCheck, ScrollText, Webhook, CreditCard,
 } from 'lucide-react'
 import { useUiStore } from '@/store/uiStore'
 import { usePermission } from '@/hooks/usePermission'
@@ -99,6 +99,15 @@ export default function Sidebar() {
         )}
         {isPlatformAdmin && (
           <NavItem to="/admin" icon={<ShieldCheck size={18} />} label="Platform Admin" collapsed={sidebarCollapsed} end />
+        )}
+        {isPlatformAdmin && (
+          <NavItem to="/admin/audit-log" icon={<ScrollText size={18} />} label="Audit Log" collapsed={sidebarCollapsed} />
+        )}
+        {canSeeAdmin && (
+          <NavItem to="/admin/webhooks" icon={<Webhook size={18} />} label="Webhooks" collapsed={sidebarCollapsed} />
+        )}
+        {canSeeAdmin && (
+          <NavItem to="/billing" icon={<CreditCard size={18} />} label="Billing" collapsed={sidebarCollapsed} />
         )}
       </nav>
     </aside>

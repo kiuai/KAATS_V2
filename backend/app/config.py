@@ -124,6 +124,13 @@ class Settings(BaseSettings):
     # ── Frontend ──────────────────────────────────────────────────────────────
     frontend_base_url: str = "https://app.kaats.kiu.ai"
 
+    # ── Stripe billing ────────────────────────────────────────────────────────
+    stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
+    # Maps plan tier name → Stripe price ID
+    stripe_price_pro: str | None = None
+    stripe_price_enterprise: str | None = None
+
     # ── Feature flags ─────────────────────────────────────────────────────────
     openapi_enabled: bool = True  # disabled in production via override
 

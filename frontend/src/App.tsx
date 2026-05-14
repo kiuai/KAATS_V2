@@ -55,6 +55,9 @@ import CompanySettingsPage from '@/pages/admin/CompanySettingsPage'
 import GlobalAdminPage from '@/pages/admin/GlobalAdminPage'
 import AdminDashboardPage from '@/pages/admin/AdminDashboardPage'
 import AdminCompanyDetailPage from '@/pages/admin/AdminCompanyDetailPage'
+import AuditLogPage from '@/pages/admin/AuditLogPage'
+import WebhooksPage from '@/pages/admin/WebhooksPage'
+import BillingPage from '@/pages/billing/BillingPage'
 
 // Onboarding
 import AcceptInvitePage from '@/pages/auth/AcceptInvitePage'
@@ -147,9 +150,14 @@ export default function App() {
         {/* Admin */}
         <Route path="admin" element={<AdminDashboardPage />} />
         <Route path="admin/companies/:companyId" element={<AdminCompanyDetailPage />} />
+        <Route path="admin/audit-log" element={<AuditLogPage />} />
+        <Route path="admin/webhooks" element={<WebhooksPage />} />
         <Route path="admin/users" element={<UsersPage />} />
         <Route path="admin/company" element={<CompanySettingsPage />} />
         <Route path="admin/global" element={<GlobalAdminPage />} />
+
+        {/* Billing */}
+        <Route path="billing" element={<BillingPage />} />
 
         {/* Onboarding wizard */}
         <Route path="onboarding" element={<OnboardingWizardPage />} />

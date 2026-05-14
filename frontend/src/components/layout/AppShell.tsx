@@ -1,10 +1,25 @@
-import { Outlet, Link, useMatches } from 'react-router-dom'
-import { Bell, LogOut, ChevronDown, User } from 'lucide-react'
+import { Outlet, Link, useMatches, useNavigate } from 'react-router-dom'
+import { Bell, LogOut, ChevronDown, User, Search } from 'lucide-react'
 import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '@/store/authStore'
 import { useUiStore } from '@/store/uiStore'
+import api from '@/lib/api'
+import CommandPalette from '@/components/CommandPalette'
 import Sidebar from './Sidebar'
 import type { Company } from '@/types'
+
+interface BackendNotification {
+  id: string
+  type: string
+  title: string
+  body: string | null
+  action_url: string | null
+  resource_type: string | null
+  resource_id: string | null
+  is_read: boolean
+  created_at: string
+}
 
 // ── Breadcrumbs ───────────────────────────────────────────────────────────
 
@@ -87,15 +102,70 @@ function CompanySelector() {
 
 // ── Notification bell ─────────────────────────────────────────────────────
 
+const TYPE_STYLES: Record<string, string> = {
+  success: 'text-green-600',
+  error: 'text-red-600',
+  warning: 'text-yellow-600',
+  info: 'text-blue-600',
+}
+
 function NotificationBell() {
-  const { notifications, unreadCount, markAllRead } = useUiStore()
   const [open, setOpen] = useState(false)
-  const count = unreadCount()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated())
+
+  const { data: notifications = [] } = useQuery<BackendNotification[]>({
+    queryKey: ['notifications'],
+    queryFn: () => api.get('/notifications?limit=20').then((r) => r.data),
+    refetchInterval: 30_000, // poll every 30 s
+    enabled: isAuthenticated,
+  })
+
+  const { data: countData } = useQuery<{ count: number }>({
+    queryKey: ['notifications-count'],
+    queryFn: () => api.get('/notifications/count').then((r) => r.data),
+    refetchInterval: 30_000,
+    enabled: isAuthenticated,
+  })
+
+  const markAll = useMutation({
+    mutationFn: () => api.patch('/notifications/read-all'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    },
+  })
+
+  const markOne = useMutation({
+    mutationFn: (id: string) => api.patch(`/notifications/${id}/read`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    },
+  })
+
+  const count = countData?.count ?? 0
+
+  const handleOpen = () => {
+    setOpen((v) => {
+      if (!v && count > 0) markAll.mutate()
+      return !v
+    })
+  }
+
+  const handleClick = (n: BackendNotification) => {
+    if (!n.is_read) markOne.mutate(n.id)
+    if (n.action_url) {
+      navigate(n.action_url)
+      setOpen(false)
+    }
+  }
 
   return (
     <div className="relative">
       <button
-        onClick={() => { setOpen((v) => !v); if (count > 0) markAllRead() }}
+        onClick={handleOpen}
         className="relative p-2 rounded-lg text-gray-500 hover:text-gray-700 hover:bg-gray-100"
         aria-label="Notifications"
       >
@@ -107,20 +177,27 @@ function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="absolute top-full right-0 mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-72 py-2">
+        <div className="absolute top-full right-0 mt-1 z-50 bg-white border border-gray-200 rounded-xl shadow-lg w-80 py-2">
           <p className="px-4 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
             Notifications
           </p>
           {notifications.length === 0 ? (
             <p className="px-4 py-3 text-sm text-gray-400">No notifications</p>
           ) : (
-            notifications.slice(0, 10).map((n) => (
-              <div key={n.id} className="px-4 py-2 hover:bg-gray-50">
-                <p className="text-sm text-gray-700">{n.message}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {new Date(n.timestamp).toLocaleTimeString()}
+            notifications.map((n) => (
+              <button
+                key={n.id}
+                onClick={() => handleClick(n)}
+                className={`w-full text-left px-4 py-2.5 hover:bg-gray-50 border-b border-gray-50 last:border-0 ${!n.is_read ? 'bg-blue-50/40' : ''}`}
+              >
+                <p className={`text-sm font-medium ${TYPE_STYLES[n.type] ?? 'text-gray-700'}`}>
+                  {n.title}
                 </p>
-              </div>
+                {n.body && <p className="text-xs text-gray-500 mt-0.5 truncate">{n.body}</p>}
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {new Date(n.created_at).toLocaleTimeString()}
+                </p>
+              </button>
             ))
           )}
         </div>
@@ -183,6 +260,7 @@ function UserMenu() {
 export default function AppShell() {
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
+      <CommandPalette />
       <Sidebar />
 
       <div className="flex-1 flex flex-col min-w-0">
@@ -190,6 +268,18 @@ export default function AppShell() {
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
           <Breadcrumbs />
           <div className="flex items-center gap-3">
+            {/* Cmd+K search trigger */}
+            <button
+              onClick={() => {
+                const e = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+                document.dispatchEvent(e)
+              }}
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-400 hover:border-gray-300 hover:text-gray-600"
+            >
+              <Search size={14} />
+              <span>Search</span>
+              <kbd className="text-[10px] border border-gray-200 rounded px-1 ml-1">⌘K</kbd>
+            </button>
             <CompanySelector />
             <NotificationBell />
             <UserMenu />

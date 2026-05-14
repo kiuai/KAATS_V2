@@ -26,19 +26,24 @@ from app.observability import configure_logging, configure_telemetry
 from app.routers import (
     admin,
     agents,
+    audit,
     auth,
+    billing,
     evidence,
     health,
+    notifications,
     onboarding,
     reports,
     requirements,
     scheduler,
+    search,
     systems,
     tenants,
     test_cycles,
     test_scripts,
     usage,
     users,
+    webhooks,
 )
 
 # ── Configure logging at import time so every subsequent get_logger() call
@@ -181,6 +186,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)   # no prefix — /health/live, /health/ready
     app.include_router(auth.router, prefix=PREFIX)
     app.include_router(admin.router, prefix=PREFIX)
+    app.include_router(audit.router, prefix=PREFIX)
     app.include_router(tenants.router, prefix=PREFIX)
     app.include_router(users.router, prefix=PREFIX)
     app.include_router(systems.router, prefix=PREFIX)
@@ -191,6 +197,10 @@ def create_app() -> FastAPI:
     app.include_router(scheduler.router, prefix=PREFIX)
     app.include_router(evidence.router, prefix=PREFIX)
     app.include_router(reports.router, prefix=PREFIX)
+    app.include_router(billing.router, prefix=PREFIX)
+    app.include_router(search.router, prefix=PREFIX)
+    app.include_router(notifications.router, prefix=PREFIX)
+    app.include_router(webhooks.router, prefix=PREFIX)
     app.include_router(onboarding.router, prefix=PREFIX)
     app.include_router(usage.router, prefix=PREFIX)
 

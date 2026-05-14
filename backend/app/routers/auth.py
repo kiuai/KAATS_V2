@@ -21,6 +21,7 @@ from app.dependencies import get_db
 from app.middleware.rate_limit import limiter
 from app.models.role import UserRole
 from app.models.tenant import Company
+from app.services.audit_service import AuditService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -186,6 +187,14 @@ async def auth_callback(
             "exp": now + 86400,  # 24 h
         }
         token = jwt.encode(claims, key="dev-secret", algorithm="HS256")
+        await AuditService(db).log(
+            event_type="user.login",
+            actor_user_id=dev_user.id,
+            actor_email=dev_user.email,
+            company_id=_DEV_COMPANY_ID,
+            resource_type="user",
+            resource_id=str(dev_user.id),
+        )
         return TokenResponse(access_token=token, token_type="bearer", expires_in=86400)
 
     return await exchange_token(request, body)

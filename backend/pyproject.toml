@@ -61,6 +61,9 @@ dependencies = [
     # Rate limiting
     "slowapi>=0.1.9",
 
+    # Billing
+    "stripe>=10.0",
+
     # Observability — OpenTelemetry
     "opentelemetry-api>=1.25,<2.0",
     "opentelemetry-sdk>=1.25,<2.0",

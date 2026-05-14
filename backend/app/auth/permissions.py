@@ -361,3 +361,8 @@ can_manage_company = require_roles(
 )
 
 platform_admin_only = require_roles(UserRoleEnum.GLOBAL_ADMIN)
+
+can_read_audit = require_roles(
+    UserRoleEnum.GLOBAL_ADMIN,
+    UserRoleEnum.ENTERPRISE_ADMIN,
+)

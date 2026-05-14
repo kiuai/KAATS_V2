@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.azure_ad import CurrentUser, get_current_user
@@ -213,3 +214,43 @@ async def generate_script(
         company_id=company_id,
         triggered_by_user_id=user_id,
     )
+
+
+# ── Bulk operations ───────────────────────────────────────────────────────────
+
+
+class BulkDeleteBody(BaseModel):
+    ids: list[UUID]
+
+
+class BulkDeleteResult(BaseModel):
+    deleted: int
+    errors: list[str]
+
+
+@router.post(
+    "/systems/{system_id}/requirements/bulk-delete",
+    response_model=BulkDeleteResult,
+    status_code=status.HTTP_200_OK,
+    dependencies=[can_manage_content],
+    summary="Soft-delete multiple requirements",
+)
+async def bulk_delete_requirements(
+    system_id: UUID,
+    body: BulkDeleteBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> BulkDeleteResult:
+    if not body.ids:
+        raise HTTPException(status_code=422, detail="ids must not be empty")
+    svc = RequirementService(db)
+    deleted = 0
+    errors: list[str] = []
+    for req_id in body.ids:
+        try:
+            await svc.soft_delete(req_id)
+            deleted += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{req_id}: {exc}")
+    await db.commit()
+    return BulkDeleteResult(deleted=deleted, errors=errors)

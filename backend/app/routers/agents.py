@@ -20,6 +20,7 @@ from app.models.enums import AgentRunStatus
 from app.schemas.agent_run import AgentRunRead, AgentRunWithToolCalls
 from app.services.agent_dispatcher import AgentDispatcher
 from app.services.agent_run_service import AgentRunService
+from app.services.audit_service import AuditService
 
 router = APIRouter(tags=["agents"])
 
@@ -71,6 +72,16 @@ async def trigger_crawl(
         max_pages=body.max_pages,
         triggered_by_user_id=current_user.user.id,
     )
+    await AuditService(db).log(
+        event_type="agent.dispatched",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=company_id,
+        resource_type="agent_run",
+        resource_id=str(run.id),
+        changes={"after": {"agent_type": "crawl", "system_id": str(system_id)}},
+        request=request,
+    )
     return AgentRunRead.model_validate(run)
 
 
@@ -106,6 +117,16 @@ async def trigger_generation(
         target_formats=body.target_formats,
         triggered_by_user_id=current_user.user.id,
     )
+    await AuditService(db).log(
+        event_type="agent.dispatched",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=company_id,
+        resource_type="agent_run",
+        resource_id=str(run.id),
+        changes={"after": {"agent_type": "generate", "system_id": str(system_id)}},
+        request=request,
+    )
     return AgentRunRead.model_validate(run)
 
 
@@ -134,6 +155,16 @@ async def trigger_execution(
         system_id=system_id,
         script_id=body.script_id,
         triggered_by_user_id=current_user.user.id,
+    )
+    await AuditService(db).log(
+        event_type="agent.dispatched",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=company_id,
+        resource_type="agent_run",
+        resource_id=str(run.id),
+        changes={"after": {"agent_type": "execute", "system_id": str(system_id), "script_id": str(body.script_id)}},
+        request=request,
     )
     return AgentRunRead.model_validate(run)
 

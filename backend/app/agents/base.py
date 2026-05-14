@@ -262,6 +262,9 @@ class BaseAgent(ABC):
         # Upsert daily token usage for billing dashboards
         await self._upsert_token_usage()
 
+        # Notify triggering user of completion / failure
+        await self._notify_triggering_user(self.run.status)
+
         # Finalise Cosmos document
         await self._finalise_cosmos_doc(self.run.status)
 
@@ -354,6 +357,36 @@ class BaseAgent(ABC):
             await self.db.flush()
         except Exception as exc:  # noqa: BLE001
             log.warning("agent.token_usage.upsert_failed", error=str(exc))
+
+    # ── In-app notifications ──────────────────────────────────────────────────
+
+    async def _notify_triggering_user(self, status: str) -> None:
+        if not self.run.triggered_by_user_id:
+            return
+        from app.models.enums import AgentRunStatus
+        from app.services.notification_service import NotificationService
+
+        is_success = status == AgentRunStatus.COMPLETED.value
+        notif_type = "success" if is_success else "error"
+        title = (
+            f"{self.agent_type.replace('_', ' ').title()} agent completed"
+            if is_success
+            else f"{self.agent_type.replace('_', ' ').title()} agent failed"
+        )
+        action_url = f"/agents/{self.run.id}"
+
+        try:
+            await NotificationService(self.db).create(
+                user_id=self.run.triggered_by_user_id,
+                company_id=self.run.company_id,
+                type=notif_type,
+                title=title,
+                action_url=action_url,
+                resource_type="agent_run",
+                resource_id=str(self.run.id),
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("agent.notify.failed", run_id=str(self.run.id))
 
     # ── Cosmos document lifecycle ─────────────────────────────────────────────
 

@@ -7,6 +7,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import RedirectResponse, StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.azure_ad import CurrentUser, get_current_user, get_tenant_context
@@ -390,3 +391,78 @@ def _check_permission(current_user: CurrentUser, permission: Permission) -> None
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Permission '{permission.value}' required",
         )
+
+
+# ── Bulk operations ───────────────────────────────────────────────────────────
+
+
+class BulkScriptDeleteBody(BaseModel):
+    ids: list[UUID]
+
+
+class BulkScriptStatusBody(BaseModel):
+    ids: list[UUID]
+    new_status: str
+
+
+class BulkOpResult(BaseModel):
+    updated: int
+    errors: list[str]
+
+
+@router.post(
+    "/systems/{system_id}/test-scripts/bulk-delete",
+    response_model=BulkOpResult,
+    dependencies=[can_manage_content],
+    summary="Soft-delete multiple test scripts",
+)
+async def bulk_delete_scripts(
+    system_id: UUID,
+    body: BulkScriptDeleteBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> BulkOpResult:
+    if not body.ids:
+        raise HTTPException(status_code=422, detail="ids must not be empty")
+    svc = TestScriptService(db)
+    deleted = 0
+    errors: list[str] = []
+    for script_id in body.ids:
+        try:
+            await svc.soft_delete(script_id)
+            deleted += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{script_id}: {exc}")
+    await db.commit()
+    return BulkOpResult(updated=deleted, errors=errors)
+
+
+@router.post(
+    "/systems/{system_id}/test-scripts/bulk-status",
+    response_model=BulkOpResult,
+    dependencies=[can_manage_content],
+    summary="Change status of multiple test scripts",
+)
+async def bulk_update_script_status(
+    system_id: UUID,
+    body: BulkScriptStatusBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> BulkOpResult:
+    from app.models.test_script import TestScript
+    if not body.ids:
+        raise HTTPException(status_code=422, detail="ids must not be empty")
+    updated = 0
+    errors: list[str] = []
+    for script_id in body.ids:
+        try:
+            script = await db.get(TestScript, script_id)
+            if script is None or script.deleted_at is not None or script.system_id != system_id:
+                errors.append(f"{script_id}: not found")
+                continue
+            script.status = body.new_status
+            updated += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{script_id}: {exc}")
+    await db.commit()
+    return BulkOpResult(updated=updated, errors=errors)

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Search, Download, ChevronDown, Zap, X } from 'lucide-react'
 import apiClient, { errorMessage } from '@/services/api'
 import type { TestScript, TestScriptStatus, Page } from '@/types'
@@ -148,6 +148,16 @@ export default function TestScriptsPage() {
 
   // Selection
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+
+  const queryClient = useQueryClient()
+  const bulkDelete = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiClient.post(`/systems/${systemId}/test-scripts/bulk-delete`, { ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['test-scripts', systemId] })
+      setSelectedKeys(new Set())
+    },
+  })
 
   // Modal
   const [exportModalOpen, setExportModalOpen] = useState(false)
@@ -318,6 +328,19 @@ export default function TestScriptsPage() {
             >
               <Download size={13} />
               Export Selected
+            </button>
+          </RoleGate>
+          <RoleGate permission="content:manage">
+            <button
+              onClick={() => {
+                if (confirm(`Delete ${selectedKeys.size} script(s)?`)) {
+                  bulkDelete.mutate(Array.from(selectedKeys))
+                }
+              }}
+              disabled={bulkDelete.isPending}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-40"
+            >
+              {bulkDelete.isPending ? 'Deleting…' : 'Delete Selected'}
             </button>
           </RoleGate>
           <button

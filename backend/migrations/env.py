@@ -21,6 +21,12 @@ import app.models.execution_evidence  # noqa: F401
 import app.models.crawl_job  # noqa: F401
 import app.models.scheduled_job  # noqa: F401
 import app.models.agent_run  # noqa: F401
+import app.models.plan  # noqa: F401
+import app.models.invitation  # noqa: F401
+import app.models.onboarding  # noqa: F401
+import app.models.audit_log  # noqa: F401
+import app.models.notification  # noqa: F401
+import app.models.webhook  # noqa: F401
 
 config = context.config
 if config.config_file_name:

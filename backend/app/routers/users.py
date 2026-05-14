@@ -10,6 +10,7 @@ from app.auth.azure_ad import CurrentUser, get_current_user
 from app.auth.permissions import any_authenticated, can_manage_company
 from app.dependencies import get_db, get_current_user_id, get_current_company_id
 from app.schemas.user import UserCreate, UserRead, UserRoleAssign, UserRoleRead, UserUpdate
+from app.services.audit_service import AuditService
 from app.services.user_service import UserService
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -101,10 +102,20 @@ async def update_user_put(
 @router.delete("/{user_id}", status_code=204, response_model=None, dependencies=[can_manage_company])
 async def deactivate_user(
     user_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> None:
     await UserService(db).deactivate_user(user_id, actor=current_user)
+    await AuditService(db).log(
+        event_type="user.deactivated",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=getattr(request.state, "company_id", None),
+        resource_type="user",
+        resource_id=str(user_id),
+        request=request,
+    )
 
 
 # ── Roles ─────────────────────────────────────────────────────────────────────
@@ -127,18 +138,41 @@ async def assign_role(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> UserRoleRead:
     granted_by = get_current_user_id(request)
-    return await UserService(db).assign_role(
+    result = await UserService(db).assign_role(
         user_id=user_id,
         body=body,
         granted_by=granted_by,
         actor_roles=current_user.roles,
     )
+    await AuditService(db).log(
+        event_type="user.role_assigned",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=getattr(request.state, "company_id", None),
+        resource_type="user",
+        resource_id=str(user_id),
+        changes={"after": {"role": body.role, "company_id": str(body.company_id) if getattr(body, "company_id", None) else None}},
+        request=request,
+    )
+    return result
 
 
 @router.delete("/{user_id}/roles/{role_id}", status_code=204, response_model=None, dependencies=[can_manage_company])
 async def revoke_role(
     user_id: UUID,
     role_id: UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> None:
     await UserService(db).revoke_role(user_id, role_id)
+    await AuditService(db).log(
+        event_type="user.role_revoked",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=getattr(request.state, "company_id", None),
+        resource_type="user",
+        resource_id=str(user_id),
+        changes={"before": {"role_id": str(role_id)}},
+        request=request,
+    )

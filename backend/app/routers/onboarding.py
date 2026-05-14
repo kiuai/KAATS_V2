@@ -31,6 +31,7 @@ from app.middleware.rate_limit import limiter
 from app.models.enums import InvitationStatus, UserRoleEnum
 from app.models.invitation import InvitationToken
 from app.models.onboarding import CompanyOnboarding
+from app.services.audit_service import AuditService
 from app.services.email import get_email_service
 
 log = structlog.get_logger(__name__)
@@ -237,6 +238,15 @@ async def accept_invitation(
         company_id=str(inv.company_id),
         role=inv.role,
     )
+    await AuditService(db).log(
+        event_type="invitation.accepted",
+        actor_user_id=user.id,
+        actor_email=user.email,
+        company_id=inv.company_id,
+        resource_type="invitation",
+        resource_id=str(inv.id),
+        changes={"after": {"role": inv.role}},
+    )
     return AcceptInviteResult(
         user_id=user.id,
         email=user.email,
@@ -317,6 +327,16 @@ async def create_invitation(
         email=str(body.email),
         company_id=str(company_id),
         role=body.role.value,
+    )
+    await AuditService(db).log(
+        event_type="invitation.created",
+        actor_user_id=current_user.user.id,
+        actor_email=current_user.user.email,
+        company_id=company_id,
+        resource_type="invitation",
+        resource_id=str(inv.id),
+        changes={"after": {"email": str(body.email), "role": body.role.value}},
+        request=request,
     )
     return InviteRead.model_validate(inv)
 
