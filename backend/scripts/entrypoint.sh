@@ -2,7 +2,7 @@
 set -e
 
 echo "Running database migrations..."
-alembic upgrade head
+alembic -c /app/migrations/alembic.ini upgrade head
 echo "Migrations complete."
 
 exec "$@"
