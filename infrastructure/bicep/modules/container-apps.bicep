@@ -88,6 +88,7 @@ var commonEnv = [
   { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsightsConnectionString }
   { name: 'LOG_LEVEL',                       value: environment == 'prod' ? 'WARNING' : 'INFO' }
   { name: 'OPENAPI_ENABLED',                 value: environment == 'prod' ? 'false' : 'true' }
+  // OpenTelemetry service name is set per-container below using concat()
 ]
 
 var commonEnvWithSecrets = concat(commonEnv, [
@@ -147,7 +148,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             memory: '1Gi'
           }
           env: concat(commonEnvWithSecrets, [
-            { name: 'ALLOWED_ORIGINS', value: allowedOrigins }
+            { name: 'ALLOWED_ORIGINS',    value: allowedOrigins }
+            { name: 'OTEL_SERVICE_NAME',  value: 'kaats-api' }
           ])
           probes: [
             {
@@ -236,6 +238,7 @@ resource worker 'Microsoft.App/containerApps@2024-03-01' = {
           env: concat(commonEnvWithSecrets, [
             { name: 'PLAYWRIGHT_BROWSERS_PATH', value: '/ms-playwright' }
             { name: 'MAX_CONCURRENT_AGENTS',    value: '3' }
+            { name: 'OTEL_SERVICE_NAME',         value: 'kaats-worker' }
           ])
         }
       ]
@@ -303,6 +306,7 @@ resource scheduler 'Microsoft.App/containerApps@2024-03-01' = {
           }
           env: concat(commonEnvWithSecrets, [
             { name: 'SCHEDULER_INTERVAL_SECONDS', value: '60' }
+            { name: 'OTEL_SERVICE_NAME',           value: 'kaats-scheduler' }
           ])
         }
       ]

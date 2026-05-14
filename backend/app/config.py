@@ -104,6 +104,14 @@ class Settings(BaseSettings):
     # ── Worker ────────────────────────────────────────────────────────────────
     max_concurrent_agents: int = 3
 
+    # ── Observability ──────────────────────────────────────────────────────────
+    # Set by Container Apps env var injected from Bicep monitoring.bicep output.
+    applicationinsights_connection_string: str | None = None
+    # Optional generic OTLP endpoint (e.g. local Jaeger / Grafana Tempo).
+    otlp_endpoint: str | None = None
+    # OpenTelemetry service name — overridden per container (api/worker/scheduler).
+    otel_service_name: str = "kaats-api"
+
     # ── Feature flags ─────────────────────────────────────────────────────────
     openapi_enabled: bool = True  # disabled in production via override
 

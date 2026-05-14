@@ -6,11 +6,14 @@ from uuid import UUID, uuid4
 import structlog
 from fastapi import HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from structlog.contextvars import bind_contextvars, clear_contextvars
 
 log = structlog.get_logger(__name__)
 
 _UNAUTHENTICATED_PATHS = frozenset({
     "/health",
+    "/health/live",
+    "/health/ready",
     "/api/v1/auth/login",
     "/api/v1/auth/callback",
     "/api/v1/auth/token",
@@ -29,9 +32,13 @@ class TenantMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        # ── Per-request structlog context (cleared for each request) ──────────
+        clear_contextvars()
+
         # ── Correlation ID ────────────────────────────────────────────────────
         correlation_id = request.headers.get("X-Correlation-ID") or str(uuid4())
         request.state.correlation_id = correlation_id
+        bind_contextvars(correlation_id=correlation_id)
 
         path = request.url.path
         if path in _UNAUTHENTICATED_PATHS or path.startswith("/docs") or path.startswith("/openapi"):
@@ -79,6 +86,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
         except (ValueError, AttributeError) as exc:
             log.warning("auth.claims_malformed", error=str(exc), correlation_id=correlation_id)
             return self._unauthorized("Malformed token claims", correlation_id)
+
+        # ── Bind identity context to every subsequent log call in this request ─
+        bind_contextvars(
+            user_id=str(request.state.user_id) if request.state.user_id else None,
+            company_id=str(request.state.company_id) if request.state.company_id else None,
+        )
 
         response = await call_next(request)
         response.headers["X-Correlation-ID"] = correlation_id

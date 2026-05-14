@@ -355,6 +355,25 @@ module containerAppsJobs 'modules/container-apps-jobs.bicep' = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Alert Rules
+// ─────────────────────────────────────────────────────────────────────────────
+
+@description('Email to receive alert notifications (optional)')
+param alertEmailAddress string = ''
+
+module alerts 'modules/alerts.bicep' = {
+  name: 'alerts'
+  scope: rg
+  params: {
+    location: location
+    suffix: suffix
+    logAnalyticsWorkspaceId: monitoring.outputs.logAnalyticsWorkspaceId
+    appInsightsId: monitoring.outputs.appInsightsConnectionString  // used for scoping
+    alertEmailAddress: alertEmailAddress
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Outputs
 // ─────────────────────────────────────────────────────────────────────────────
 

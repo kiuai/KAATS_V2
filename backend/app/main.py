@@ -16,10 +16,12 @@ from app.config import get_settings
 from app.cosmos import close_cosmos, init_cosmos
 from app.database import close_db, init_db
 from app.middleware.tenant import TenantMiddleware
+from app.observability import configure_logging, configure_telemetry
 from app.routers import (
     agents,
     auth,
     evidence,
+    health,
     reports,
     requirements,
     scheduler,
@@ -28,6 +30,14 @@ from app.routers import (
     test_cycles,
     test_scripts,
     users,
+)
+
+# ── Configure logging at import time so every subsequent get_logger() call
+#    picks up the correct processors before the app is built.
+_settings = get_settings()
+configure_logging(
+    log_level=_settings.log_level,
+    json=_settings.is_production,
 )
 
 log = structlog.get_logger(__name__)
@@ -48,6 +58,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await init_browser_pool(size=settings.browser_pool_size)
     except Exception as exc:  # noqa: BLE001
         log.warning("browser_pool.startup_skipped", error=str(exc))
+
+    # ── Wire OpenTelemetry after all services are initialised ─────────────────
+    configure_telemetry(
+        app,
+        service_name=settings.otel_service_name,
+        applicationinsights_connection_string=settings.applicationinsights_connection_string,
+        otlp_endpoint=settings.otlp_endpoint,
+    )
 
     log.info("kaats.ready")
     yield
@@ -82,7 +100,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ── Tenant middleware (extracts JWT claims, sets RLS context) ─────────────
+    # ── Tenant middleware (extracts JWT claims, sets RLS context, binds
+    #    correlation_id / user_id / company_id to structlog context) ──────────
     app.add_middleware(TenantMiddleware)
 
     # ── Request ID + latency logging ──────────────────────────────────────────
@@ -94,6 +113,12 @@ def create_app() -> FastAPI:
         response: Response = await call_next(request)
         duration_ms = round((time.perf_counter() - start) * 1000)
         response.headers["X-Request-ID"] = request_id
+
+        # Enrich with per-request context set by TenantMiddleware
+        correlation_id = getattr(request.state, "correlation_id", None)
+        user_id = str(getattr(request.state, "user_id", "") or "")
+        company_id = str(getattr(request.state, "company_id", "") or "")
+
         log.info(
             "http.request",
             method=request.method,
@@ -101,19 +126,23 @@ def create_app() -> FastAPI:
             status=response.status_code,
             duration_ms=duration_ms,
             request_id=request_id,
+            correlation_id=correlation_id,
+            user_id=user_id or None,
+            company_id=company_id or None,
         )
         return response
-
-    # ── Health ────────────────────────────────────────────────────────────────
-    @app.get("/health", tags=["ops"], include_in_schema=False)
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
 
     # ── Exception handlers ────────────────────────────────────────────────────
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         request_id = getattr(request.state, "request_id", "unknown")
-        log.exception("http.unhandled_error", request_id=request_id, exc_info=exc)
+        correlation_id = getattr(request.state, "correlation_id", None)
+        log.exception(
+            "http.unhandled_error",
+            request_id=request_id,
+            correlation_id=correlation_id,
+            exc_info=exc,
+        )
         return JSONResponse(
             status_code=500,
             content={
@@ -122,12 +151,14 @@ def create_app() -> FastAPI:
                     "message": "An unexpected error occurred.",
                     "details": None,
                     "request_id": request_id,
+                    "correlation_id": correlation_id,
                 }
             },
         )
 
     # ── Routers ───────────────────────────────────────────────────────────────
     PREFIX = "/api/v1"
+    app.include_router(health.router)   # no prefix — /health/live, /health/ready
     app.include_router(auth.router, prefix=PREFIX)
     app.include_router(tenants.router, prefix=PREFIX)
     app.include_router(users.router, prefix=PREFIX)
