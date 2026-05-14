@@ -69,7 +69,7 @@ class Settings(BaseSettings):
                 f"Server=tcp:{server},1433;"
                 f"Database={database};"
                 f"Encrypt=yes;"
-                f"TrustServerCertificate=no;"
+                f"TrustServerCertificate=yes;"
                 f"Connection Timeout={self.db_login_timeout};"
             )
             return f"mssql+aioodbc:///?odbc_connect={urllib.parse.quote_plus(odbc)}"
