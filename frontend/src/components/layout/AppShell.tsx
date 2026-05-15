@@ -221,7 +221,7 @@ function UserMenu() {
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100"
       >
-        <div className="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-semibold flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-xs font-semibold flex items-center justify-center ring-2 ring-white">
           {initials}
         </div>
       </button>
@@ -264,21 +264,22 @@ export default function AppShell() {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top header */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-6 shrink-0">
+        <header className="h-14 bg-white border-b border-gray-100 flex items-center justify-between px-5 shrink-0 shadow-[0_1px_3px_0_rgba(0,0,0,0.04)]">
           <Breadcrumbs />
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {/* Cmd+K search trigger */}
             <button
               onClick={() => {
                 const e = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
                 document.dispatchEvent(e)
               }}
-              className="hidden md:flex items-center gap-2 px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-400 hover:border-gray-300 hover:text-gray-600"
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-400 hover:bg-white hover:border-gray-300 hover:text-gray-600 transition-colors"
             >
-              <Search size={14} />
+              <Search size={13} />
               <span>Search</span>
-              <kbd className="text-[10px] border border-gray-200 rounded px-1 ml-1">⌘K</kbd>
+              <kbd className="ml-1 px-1.5 py-0.5 text-[10px] font-medium bg-white border border-gray-200 rounded text-gray-400">⌘K</kbd>
             </button>
+            <div className="h-5 w-px bg-gray-100 mx-1" />
             <CompanySelector />
             <NotificationBell />
             <UserMenu />
