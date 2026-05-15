@@ -38,16 +38,25 @@ def require_roles(*roles: str):
     """
     FastAPI dependency factory.
 
+    Global admins (is_global_admin=True in the DB) bypass all role checks.
+    For everyone else, the caller must have at least one of the listed roles.
+
     Usage::
 
         @router.post("/foo")
         async def create_foo(_: None = Depends(require_roles("qa_engineer", "system_manager"))):
             ...
     """
+    # Late import to avoid circular: azure_ad → permissions → dependencies → azure_ad
+    from app.auth.azure_ad import CurrentUser, get_current_user  # noqa: PLC0415
+
     allowed = set(roles)
 
-    async def _check(request: Request) -> None:
-        user_roles: list[str] = getattr(request.state, "roles", [])
+    async def _check(current_user: CurrentUser = Depends(get_current_user)) -> None:
+        # Global admins pass every role gate without needing an explicit UserRole record.
+        if current_user.is_global_admin:
+            return
+        user_roles: set[str] = {r.role for r in current_user.roles}
         if not allowed.intersection(user_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
