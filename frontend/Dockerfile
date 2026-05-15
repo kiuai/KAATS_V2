@@ -11,6 +11,10 @@ CMD ["npm", "run", "dev"]
 
 # ── Build ──────────────────────────────────────────────────────────────────────
 FROM base AS builder
+ARG VITE_AZURE_CLIENT_ID
+ARG VITE_AZURE_TENANT_ID
+ENV VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID
+ENV VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID
 COPY . .
 RUN npx vite build
 
