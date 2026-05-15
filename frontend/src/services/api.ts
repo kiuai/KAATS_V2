@@ -5,7 +5,11 @@ import axios, {
 } from 'axios'
 import type { ApiError } from '@/types'
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? '/api/v1'
+const runtimeConfig = (window as { __KAATS_CONFIG__?: Record<string, string> }).__KAATS_CONFIG__ ?? {}
+const BASE_URL =
+  (runtimeConfig.API_URL !== 'VITE_API_URL_PLACEHOLDER' ? runtimeConfig.API_URL : '') ||
+  import.meta.env.VITE_API_URL ||
+  '/api/v1'
 
 // ── Axios instance ────────────────────────────────────────────────────────
 

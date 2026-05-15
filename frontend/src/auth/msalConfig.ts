@@ -1,7 +1,18 @@
 import type { Configuration, RedirectRequest } from '@azure/msal-browser'
 
-const clientId = import.meta.env.VITE_AZURE_CLIENT_ID ?? ''
-const tenantId = import.meta.env.VITE_AZURE_TENANT_ID ?? 'common'
+// Read from runtime config (injected by docker-entrypoint.sh) first,
+// then fall back to build-time baked values (for local dev with .env.local).
+const runtimeConfig = (window as { __KAATS_CONFIG__?: Record<string, string> }).__KAATS_CONFIG__ ?? {}
+
+const clientId =
+  (runtimeConfig.AZURE_CLIENT_ID !== 'VITE_AZURE_CLIENT_ID_PLACEHOLDER' ? runtimeConfig.AZURE_CLIENT_ID : '') ||
+  import.meta.env.VITE_AZURE_CLIENT_ID ||
+  ''
+
+const tenantId =
+  (runtimeConfig.AZURE_TENANT_ID !== 'VITE_AZURE_TENANT_ID_PLACEHOLDER' ? runtimeConfig.AZURE_TENANT_ID : '') ||
+  import.meta.env.VITE_AZURE_TENANT_ID ||
+  'common'
 
 export const msalConfig: Configuration = {
   auth: {
