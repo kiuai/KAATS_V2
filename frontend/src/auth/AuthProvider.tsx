@@ -18,11 +18,17 @@ export const msalInstance = new PublicClientApplication(msalConfig)
 // LOGIN_SUCCESS fires during handleRedirectPromise (inside MsalProvider.initialize)
 // and carries the full AuthenticationResult including accessToken.
 msalInstance.addEventCallback((event) => {
-  if (event.eventType === EventType.LOGIN_SUCCESS && event.payload) {
+  if (
+    (event.eventType === EventType.LOGIN_SUCCESS ||
+      event.eventType === EventType.ACQUIRE_TOKEN_SUCCESS) &&
+    event.payload
+  ) {
     const payload = event.payload as AuthenticationResult
     msalInstance.setActiveAccount(payload.account)
-    if (payload.accessToken && payload.account) {
-      useAuthStore.getState().setMsalToken(payload.accessToken, payload.account)
+    // accessToken may be empty for OIDC-only scope requests; fall back to idToken
+    const token = payload.accessToken || payload.idToken
+    if (token && payload.account) {
+      useAuthStore.getState().setMsalToken(token, payload.account)
     }
   }
 })

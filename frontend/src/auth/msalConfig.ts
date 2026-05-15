@@ -17,12 +17,7 @@ export const msalConfig: Configuration = {
 }
 
 export const loginRequest: RedirectRequest = {
-  scopes: [
-    'openid',
-    'profile',
-    'email',
-    ...(clientId ? [`api://${clientId}/access_as_user`] : []),
-  ],
+  scopes: ['openid', 'profile', 'email'],
 }
 
 export const isDev = import.meta.env.VITE_DEV_AUTH === 'true' || !clientId

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
@@ -8,22 +8,27 @@ export default function CallbackPage() {
   const navigate = useNavigate()
   const { inProgress } = useMsal()
   const accessToken = useAuthStore((s) => s.accessToken)
-  const attempted = useRef(false)
 
+  // As soon as the token lands in the store, go to dashboard.
   useEffect(() => {
-    // Wait for MsalProvider to finish handling the redirect
-    if (inProgress !== InteractionStatus.None) return
-    if (attempted.current) return
-    attempted.current = true
-
-    // The LOGIN_SUCCESS event in AuthProvider sets authStore.accessToken.
-    // If it's set, go to dashboard; otherwise fall back to login.
     if (accessToken) {
       navigate('/dashboard', { replace: true })
-    } else {
-      navigate('/login', { replace: true })
     }
-  }, [inProgress, accessToken, navigate])
+  }, [accessToken, navigate])
+
+  // After MSAL finishes the redirect and a grace period has passed without a
+  // token appearing, fall back to the login page.
+  useEffect(() => {
+    if (inProgress !== InteractionStatus.None) return
+
+    const timer = setTimeout(() => {
+      if (!useAuthStore.getState().isAuthenticated()) {
+        navigate('/login', { replace: true })
+      }
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [inProgress, navigate])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
