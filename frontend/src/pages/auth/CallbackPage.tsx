@@ -2,42 +2,28 @@ import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
-import { loginRequest } from '@/auth/msalConfig'
 import { useAuthStore } from '@/store/authStore'
 
 export default function CallbackPage() {
   const navigate = useNavigate()
-  const { instance, inProgress, accounts } = useMsal()
-  const setMsalToken = useAuthStore((s) => s.setMsalToken)
+  const { inProgress } = useMsal()
+  const accessToken = useAuthStore((s) => s.accessToken)
   const attempted = useRef(false)
 
   useEffect(() => {
-    // Wait for MsalProvider to finish handling the redirect internally
+    // Wait for MsalProvider to finish handling the redirect
     if (inProgress !== InteractionStatus.None) return
-    // Only attempt once
     if (attempted.current) return
     attempted.current = true
 
-    const account = accounts[0] ?? instance.getActiveAccount() ?? null
-
-    if (!account) {
+    // The LOGIN_SUCCESS event in AuthProvider sets authStore.accessToken.
+    // If it's set, go to dashboard; otherwise fall back to login.
+    if (accessToken) {
+      navigate('/dashboard', { replace: true })
+    } else {
       navigate('/login', { replace: true })
-      return
     }
-
-    instance.setActiveAccount(account)
-
-    instance
-      .acquireTokenSilent({ ...loginRequest, account })
-      .then((result) => {
-        setMsalToken(result.accessToken, account)
-        navigate('/dashboard', { replace: true })
-      })
-      .catch(() => {
-        // Silent acquisition failed — trigger interactive login again
-        instance.loginRedirect(loginRequest)
-      })
-  }, [inProgress, accounts, instance, navigate, setMsalToken])
+  }, [inProgress, accessToken, navigate])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">

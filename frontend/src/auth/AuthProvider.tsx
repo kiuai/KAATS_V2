@@ -14,11 +14,16 @@ import type { Company, UserRole } from '@/types'
 
 export const msalInstance = new PublicClientApplication(msalConfig)
 
-// Set active account on login events
+// Set active account and store token on login events.
+// LOGIN_SUCCESS fires during handleRedirectPromise (inside MsalProvider.initialize)
+// and carries the full AuthenticationResult including accessToken.
 msalInstance.addEventCallback((event) => {
   if (event.eventType === EventType.LOGIN_SUCCESS && event.payload) {
     const payload = event.payload as AuthenticationResult
     msalInstance.setActiveAccount(payload.account)
+    if (payload.accessToken && payload.account) {
+      useAuthStore.getState().setMsalToken(payload.accessToken, payload.account)
+    }
   }
 })
 
@@ -69,8 +74,8 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
         setMsalToken(response.accessToken, accounts[0] as AccountInfo)
       })
       .catch(() => {
-        // Silent token acquisition failed — require re-login
-        instance.logoutRedirect()
+        // Silent token acquisition failed — token was already set via LOGIN_SUCCESS
+        // event or will be refreshed on the next request. Do not log the user out.
       })
       .finally(() => setIsLoading(false))
   }, [isAuthenticated, accounts, instance, setMsalToken])
