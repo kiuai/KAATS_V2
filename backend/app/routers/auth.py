@@ -200,7 +200,7 @@ async def auth_callback(
     return await exchange_token(request, body)
 
 
-@router.get("/me", response_model=MeResponse, dependencies=[any_authenticated])
+@router.get("/me", response_model=MeResponse)
 async def get_me(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> MeResponse:
@@ -227,7 +227,7 @@ async def logout(request: Request) -> None:
     return None
 
 
-@router.get("/companies", response_model=list[CompanyOut], dependencies=[any_authenticated])
+@router.get("/companies", response_model=list[CompanyOut])
 async def list_accessible_companies(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

@@ -8,7 +8,23 @@ import {
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { msalConfig, loginRequest, isDev } from './msalConfig'
 import { useAuthStore } from '@/store/authStore'
+import { apiClient } from '@/services/api'
 import type { Company, UserRole } from '@/types'
+
+// Shape returned by GET /auth/companies
+interface CompanyOut {
+  id: string
+  name: string
+  slug: string
+  enterprise_id: string
+  industry: string | null
+  default_export_format: string
+  is_active: boolean
+  is_deleted: boolean
+  settings: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
 
 // ── MSAL instance (singleton) ─────────────────────────────────────────────
 
@@ -62,7 +78,7 @@ export function useAuthenticatedUser(): AuthenticatedUser {
 function InnerAuthProvider({ children }: { children: React.ReactNode }) {
   const { instance, accounts } = useMsal()
   const isAuthenticated = useIsAuthenticated()
-  const { setMsalToken, currentCompany, user, roles } = useAuthStore()
+  const { setMsalToken, setCompanies, setCurrentCompany, currentCompany, user, roles } = useAuthStore()
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
@@ -71,20 +87,50 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    instance
-      .acquireTokenSilent({
-        ...loginRequest,
-        account: accounts[0] as AccountInfo,
-      })
-      .then((response) => {
-        setMsalToken(response.accessToken, accounts[0] as AccountInfo)
+    const account = accounts[0] as AccountInfo
+
+    // 1. Ensure we have a token in the store
+    const ensureToken = useAuthStore.getState().accessToken
+      ? Promise.resolve(useAuthStore.getState().accessToken!)
+      : instance
+          .acquireTokenSilent({ ...loginRequest, account })
+          .then((r) => {
+            const tok = r.accessToken || r.idToken
+            if (tok) setMsalToken(tok, account)
+            return tok
+          })
+          .catch(() => useAuthStore.getState().accessToken ?? null)
+
+    ensureToken
+      .then((token) => {
+        if (!token) return
+        // 2. Fetch accessible companies — sets X-Company-Slug context for subsequent calls
+        return apiClient.get<CompanyOut[]>('/auth/companies').then((r) => {
+          const cos: Company[] = r.data.map((c) => ({
+            id: c.id,
+            name: c.name,
+            slug: c.slug,
+            enterprise_id: c.enterprise_id,
+            industry: c.industry,
+            default_export_format: c.default_export_format,
+            is_active: c.is_active,
+            is_deleted: c.is_deleted,
+            settings: c.settings,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+          }))
+          setCompanies(cos)
+          // Only set currentCompany if not already set (e.g., persisted from last session)
+          if (!useAuthStore.getState().currentCompany && cos.length > 0) {
+            setCurrentCompany(cos[0])
+          }
+        })
       })
       .catch(() => {
-        // Silent token acquisition failed — token was already set via LOGIN_SUCCESS
-        // event or will be refreshed on the next request. Do not log the user out.
+        // Companies fetch failed — user can still navigate; dashboard will show errors
       })
       .finally(() => setIsLoading(false))
-  }, [isAuthenticated, accounts, instance, setMsalToken])
+  }, [isAuthenticated, accounts, instance, setMsalToken, setCompanies, setCurrentCompany])
 
   return (
     <AuthContext.Provider
