@@ -13,11 +13,14 @@ export default function CallbackPage() {
   // companies — so currentCompany is guaranteed to be set before we navigate.
   const { isLoading } = useAuthenticatedUser()
 
-  // Navigate to dashboard once the token is set AND the post-login bootstrap
-  // (company fetch) has completed.
+  // Navigate once the token is set AND the post-login bootstrap has completed.
+  // Global admins land on /admin (no mandatory company context).
+  // Everyone else lands on /dashboard.
   useEffect(() => {
     if (accessToken && !isLoading) {
-      navigate('/dashboard', { replace: true })
+      const { user, currentCompany } = useAuthStore.getState()
+      const dest = (user?.is_global_admin && !currentCompany) ? '/admin' : '/dashboard'
+      navigate(dest, { replace: true })
     }
   }, [accessToken, isLoading, navigate])
 

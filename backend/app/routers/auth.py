@@ -68,6 +68,12 @@ class CompanyOut(BaseModel):
     slug: str
     industry: str | None
     enterprise_id: UUID
+    default_export_format: str
+    is_active: bool
+    is_deleted: bool
+    settings: dict | None
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 

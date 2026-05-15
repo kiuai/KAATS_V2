@@ -182,6 +182,12 @@ class Settings(BaseSettings):
     stripe_price_pro: str | None = None
     stripe_price_enterprise: str | None = None
 
+    # ── Bootstrap ─────────────────────────────────────────────────────────────
+    # Comma-separated list of emails that are automatically promoted to
+    # global_admin on first (or any subsequent) login. Use this to seed the
+    # initial platform administrator(s).
+    kaats_admin_emails: str = ""
+
     # ── Feature flags ─────────────────────────────────────────────────────────
     openapi_enabled: bool = True
 

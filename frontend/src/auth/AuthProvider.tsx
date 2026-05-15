@@ -9,7 +9,7 @@ import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
 import { msalConfig, loginRequest, isDev } from './msalConfig'
 import { useAuthStore } from '@/store/authStore'
 import { apiClient } from '@/services/api'
-import type { Company, UserRole } from '@/types'
+import type { Company, User, UserRole } from '@/types'
 
 // Shape returned by GET /auth/companies
 interface CompanyOut {
@@ -24,6 +24,23 @@ interface CompanyOut {
   settings: Record<string, unknown> | null
   created_at: string
   updated_at: string
+}
+
+// Shape returned by GET /auth/me
+interface MeOut {
+  user_id: string
+  email: string
+  display_name: string | null
+  is_global_admin: boolean
+  roles: Array<{
+    id: string
+    role: string
+    enterprise_id: string | null
+    company_id: string | null
+    system_id: string | null
+    business_domain: string | null
+    expires_at: string | null
+  }>
 }
 
 // ── MSAL instance (singleton) ─────────────────────────────────────────────
@@ -57,6 +74,7 @@ interface AuthenticatedUser {
   displayName: string | null
   roles: UserRole[]
   currentCompany: Company | null
+  isGlobalAdmin: boolean
   isLoading: boolean
 }
 
@@ -66,6 +84,7 @@ const AuthContext = createContext<AuthenticatedUser>({
   displayName: null,
   roles: [],
   currentCompany: null,
+  isGlobalAdmin: false,
   isLoading: true,
 })
 
@@ -78,13 +97,10 @@ export function useAuthenticatedUser(): AuthenticatedUser {
 function InnerAuthProvider({ children }: { children: React.ReactNode }) {
   const { instance, accounts, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
-  const { setMsalToken, setCompanies, setCurrentCompany, currentCompany, user, roles } = useAuthStore()
+  const { setMsalToken, setUser, setRoles, setCompanies, setCurrentCompany, currentCompany, user, roles } = useAuthStore()
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    // Wait for MSAL to finish its startup/redirect processing before deciding.
-    // If we call setIsLoading(false) too early the CallbackPage navigates before
-    // companies have been fetched, sending unauthenticated API requests.
     if (inProgress === 'startup' || inProgress === 'handleRedirect') return
 
     if (!isAuthenticated || accounts.length === 0) {
@@ -109,9 +125,42 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
     ensureToken
       .then((token) => {
         if (!token) return
-        // 2. Fetch accessible companies — sets X-Company-Slug context for subsequent calls
-        return apiClient.get<CompanyOut[]>('/auth/companies').then((r) => {
-          const cos: Company[] = r.data.map((c) => ({
+        // 2. Fetch user profile and accessible companies in parallel
+        return Promise.all([
+          apiClient.get<MeOut>('/auth/me'),
+          apiClient.get<CompanyOut[]>('/auth/companies'),
+        ]).then(([meRes, companiesRes]) => {
+          const me = meRes.data
+
+          // Hydrate full user profile (is_global_admin, real DB id, roles)
+          const fullUser: User = {
+            id: me.user_id,
+            email: me.email,
+            display_name: me.display_name,
+            azure_oid: account.localAccountId,
+            is_active: true,
+            is_global_admin: me.is_global_admin,
+            last_login_at: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          }
+          setUser(fullUser)
+
+          const mappedRoles: UserRole[] = me.roles.map((r) => ({
+            id: r.id,
+            user_id: me.user_id,
+            role: r.role as UserRole['role'],
+            enterprise_id: r.enterprise_id,
+            company_id: r.company_id,
+            system_id: r.system_id,
+            business_domain: r.business_domain,
+            granted_by: null,
+            expires_at: r.expires_at,
+            created_at: new Date().toISOString(),
+          }))
+          setRoles(mappedRoles)
+
+          const cos: Company[] = companiesRes.data.map((c) => ({
             id: c.id,
             name: c.name,
             slug: c.slug,
@@ -125,17 +174,22 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
             updated_at: c.updated_at,
           }))
           setCompanies(cos)
-          // Only set currentCompany if not already set (e.g., persisted from last session)
-          if (!useAuthStore.getState().currentCompany && cos.length > 0) {
+
+          // Only auto-select a company if not already set and there's exactly one
+          // (or user is not a global admin). Global admins pick via the company switcher.
+          if (!useAuthStore.getState().currentCompany && cos.length > 0 && !me.is_global_admin) {
+            setCurrentCompany(cos[0])
+          }
+          if (!useAuthStore.getState().currentCompany && cos.length === 1) {
             setCurrentCompany(cos[0])
           }
         })
       })
       .catch(() => {
-        // Companies fetch failed — user can still navigate; dashboard will show errors
+        // Bootstrap failed — user can still navigate; pages will show errors
       })
       .finally(() => setIsLoading(false))
-  }, [isAuthenticated, accounts, instance, setMsalToken, setCompanies, setCurrentCompany])
+  }, [isAuthenticated, accounts, inProgress, instance, setMsalToken, setUser, setRoles, setCompanies, setCurrentCompany])
 
   return (
     <AuthContext.Provider
@@ -145,6 +199,7 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
         displayName: user?.display_name ?? (accounts[0]?.name ?? null),
         roles: roles,
         currentCompany: currentCompany,
+        isGlobalAdmin: user?.is_global_admin ?? false,
         isLoading,
       }}
     >
@@ -166,6 +221,7 @@ function DevAuthProvider({ children }: { children: React.ReactNode }) {
         displayName: user?.display_name ?? 'Dev User',
         roles: roles,
         currentCompany: currentCompany,
+        isGlobalAdmin: user?.is_global_admin ?? false,
         isLoading: false,
       }}
     >

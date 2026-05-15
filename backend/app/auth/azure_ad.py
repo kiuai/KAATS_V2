@@ -336,6 +336,14 @@ async def _get_or_create_user(
     email: str,
     display_name: str | None,
 ) -> User:
+    from app.config import get_settings
+
+    settings = get_settings()
+    admin_emails: frozenset[str] = frozenset(
+        e.strip().lower() for e in settings.kaats_admin_emails.split(",") if e.strip()
+    )
+    is_bootstrap_admin = bool(email and email.lower() in admin_emails)
+
     user: User | None = None
 
     if azure_oid:
@@ -354,16 +362,21 @@ async def _get_or_create_user(
             azure_oid=azure_oid or None,
             display_name=display_name,
             is_active=True,
+            is_global_admin=is_bootstrap_admin,
             last_login_at=now,
         )
         session.add(user)
         await session.flush()
-        log.info("azure_ad.user_provisioned", email=email)
+        log.info("azure_ad.user_provisioned", email=email, is_global_admin=is_bootstrap_admin)
     else:
         if azure_oid and not user.azure_oid:
             user.azure_oid = azure_oid
         if display_name and not user.display_name:
             user.display_name = display_name
+        # Promote to global admin if listed in bootstrap emails
+        if is_bootstrap_admin and not user.is_global_admin:
+            user.is_global_admin = True
+            log.info("azure_ad.user_promoted_to_admin", email=email)
         user.last_login_at = now
         await session.flush()
 
