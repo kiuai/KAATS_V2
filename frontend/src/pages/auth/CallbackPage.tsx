@@ -1,21 +1,39 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { msalInstance } from '@/auth/AuthProvider'
+import { loginRequest } from '@/auth/msalConfig'
+import { useAuthStore } from '@/store/authStore'
+import type { AccountInfo } from '@azure/msal-browser'
 
 export default function CallbackPage() {
   const navigate = useNavigate()
+  const setMsalToken = useAuthStore((s) => s.setMsalToken)
 
   useEffect(() => {
     msalInstance
       .handleRedirectPromise()
-      .then(() => {
+      .then(async (result) => {
+        const account: AccountInfo | null =
+          result?.account ?? msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0] ?? null
+
+        if (!account) {
+          navigate('/login', { replace: true })
+          return
+        }
+
+        msalInstance.setActiveAccount(account)
+
+        const tokenResult = await msalInstance.acquireTokenSilent({
+          ...loginRequest,
+          account,
+        })
+        setMsalToken(tokenResult.accessToken, account)
         navigate('/dashboard', { replace: true })
       })
       .catch(() => {
-        // If the redirect promise fails, send back to login
         navigate('/login', { replace: true })
       })
-  }, [navigate])
+  }, [navigate, setMsalToken])
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
