@@ -114,6 +114,7 @@ export default function DashboardPage() {
     useQuery<System[]>({
       queryKey: ['systems'],
       queryFn: () => apiClient.get<System[]>('/systems').then((r) => r.data),
+      enabled: !!currentCompany,
     })
 
   const { data: agentRuns = [], isLoading: runsLoading, error: runsError } =
@@ -121,6 +122,7 @@ export default function DashboardPage() {
       queryKey: ['agent_runs', 'recent'],
       queryFn: () => apiClient.get<AgentRun[]>('/agent_runs', { params: { limit: 10 } }).then((r) => r.data),
       refetchInterval: (q) => (q.state.data ?? []).some((r) => r.status === 'running') ? 10_000 : false,
+      enabled: !!currentCompany,
     })
 
   const displayName = user?.display_name?.split(' ')[0] ?? user?.email?.split('@')[0] ?? ''

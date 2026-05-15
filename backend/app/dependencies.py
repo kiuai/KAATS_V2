@@ -19,14 +19,14 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
 def get_current_user_id(request: Request) -> UUID:
     user_id: UUID | None = getattr(request.state, "user_id", None)
     if user_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing user context")
     return user_id
 
 
 def get_current_company_id(request: Request) -> UUID:
     company_id: UUID | None = getattr(request.state, "company_id", None)
     if company_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing company context — supply X-Company-Slug header")
     return company_id
 
 
