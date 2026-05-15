@@ -76,12 +76,17 @@ export function useAuthenticatedUser(): AuthenticatedUser {
 // ── Inner provider (needs MsalProvider above it) ──────────────────────────
 
 function InnerAuthProvider({ children }: { children: React.ReactNode }) {
-  const { instance, accounts } = useMsal()
+  const { instance, accounts, inProgress } = useMsal()
   const isAuthenticated = useIsAuthenticated()
   const { setMsalToken, setCompanies, setCurrentCompany, currentCompany, user, roles } = useAuthStore()
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    // Wait for MSAL to finish its startup/redirect processing before deciding.
+    // If we call setIsLoading(false) too early the CallbackPage navigates before
+    // companies have been fetched, sending unauthenticated API requests.
+    if (inProgress === 'startup' || inProgress === 'handleRedirect') return
+
     if (!isAuthenticated || accounts.length === 0) {
       setIsLoading(false)
       return

@@ -3,21 +3,25 @@ import { useNavigate } from 'react-router-dom'
 import { useMsal } from '@azure/msal-react'
 import { InteractionStatus } from '@azure/msal-browser'
 import { useAuthStore } from '@/store/authStore'
+import { useAuthenticatedUser } from '@/auth/AuthProvider'
 
 export default function CallbackPage() {
   const navigate = useNavigate()
   const { inProgress } = useMsal()
   const accessToken = useAuthStore((s) => s.accessToken)
+  // isLoading becomes false only after InnerAuthProvider finishes fetching
+  // companies — so currentCompany is guaranteed to be set before we navigate.
+  const { isLoading } = useAuthenticatedUser()
 
-  // As soon as the token lands in the store, go to dashboard.
+  // Navigate to dashboard once the token is set AND the post-login bootstrap
+  // (company fetch) has completed.
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && !isLoading) {
       navigate('/dashboard', { replace: true })
     }
-  }, [accessToken, navigate])
+  }, [accessToken, isLoading, navigate])
 
-  // After MSAL finishes the redirect and a grace period has passed without a
-  // token appearing, fall back to the login page.
+  // Safety-valve: if MSAL finishes with no token after 10 s, fall back to login.
   useEffect(() => {
     if (inProgress !== InteractionStatus.None) return
 
@@ -25,7 +29,7 @@ export default function CallbackPage() {
       if (!useAuthStore.getState().isAuthenticated()) {
         navigate('/login', { replace: true })
       }
-    }, 3000)
+    }, 10_000)
 
     return () => clearTimeout(timer)
   }, [inProgress, navigate])
