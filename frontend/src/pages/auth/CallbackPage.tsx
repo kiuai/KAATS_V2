@@ -1,9 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { msalInstance } from '@/auth/AuthProvider'
-import { loginRequest } from '@/auth/msalConfig'
 import { useAuthStore } from '@/store/authStore'
-import type { AccountInfo } from '@azure/msal-browser'
 
 export default function CallbackPage() {
   const navigate = useNavigate()
@@ -12,23 +10,24 @@ export default function CallbackPage() {
   useEffect(() => {
     msalInstance
       .handleRedirectPromise()
-      .then(async (result) => {
-        const account: AccountInfo | null =
-          result?.account ?? msalInstance.getActiveAccount() ?? msalInstance.getAllAccounts()[0] ?? null
-
-        if (!account) {
-          navigate('/login', { replace: true })
+      .then((result) => {
+        // result contains the access token from the authorization code exchange
+        if (result?.accessToken && result.account) {
+          msalInstance.setActiveAccount(result.account)
+          setMsalToken(result.accessToken, result.account)
+          navigate('/dashboard', { replace: true })
           return
         }
 
-        msalInstance.setActiveAccount(account)
+        // No result means handleRedirectPromise was already consumed (e.g. by MsalProvider).
+        // Check if we already have an authenticated account with a stored token.
+        const stored = useAuthStore.getState()
+        if (stored.isAuthenticated()) {
+          navigate('/dashboard', { replace: true })
+          return
+        }
 
-        const tokenResult = await msalInstance.acquireTokenSilent({
-          ...loginRequest,
-          account,
-        })
-        setMsalToken(tokenResult.accessToken, account)
-        navigate('/dashboard', { replace: true })
+        navigate('/login', { replace: true })
       })
       .catch(() => {
         navigate('/login', { replace: true })
