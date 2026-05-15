@@ -28,7 +28,11 @@ export const msalConfig: Configuration = {
 }
 
 export const loginRequest: RedirectRequest = {
-  scopes: ['openid', 'profile', 'email'],
+  // 'openid', 'profile', 'email' are OIDC scopes only — they produce an ID token
+  // whose audience is the raw client ID (3b6d0f72...).  The backend in production
+  // validates audience against "api://<clientId>", so we must also request the
+  // API scope to get a proper access token with the matching audience.
+  scopes: ['openid', 'profile', 'email', `api://${clientId}/access_as_user`],
 }
 
 export const isDev = import.meta.env.VITE_DEV_AUTH === 'true' || !clientId

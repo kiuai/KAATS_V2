@@ -104,7 +104,14 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
     if (inProgress === 'startup' || inProgress === 'handleRedirect') return
 
     if (!isAuthenticated || accounts.length === 0) {
-      setIsLoading(false)
+      // Do NOT set isLoading(false) here.  On a redirect-back page, MSAL
+      // transitions inProgress → 'none' before it updates isAuthenticated/accounts
+      // in a separate React render.  Calling setIsLoading(false) now would make
+      // CallbackPage navigate immediately — before bootstrap has run — using a
+      // stale user object whose is_global_admin is still the default false.
+      // isLoading will be resolved by the finally-block below once bootstrap
+      // completes, or by the 10-second safety-valve in CallbackPage if MSAL
+      // never produces an authenticated session.
       return
     }
 
@@ -175,12 +182,9 @@ function InnerAuthProvider({ children }: { children: React.ReactNode }) {
           }))
           setCompanies(cos)
 
-          // Only auto-select a company if not already set and there's exactly one
-          // (or user is not a global admin). Global admins pick via the company switcher.
+          // Auto-select the first company for non-global-admins.
+          // Global admins pick via the company switcher and land on /admin.
           if (!useAuthStore.getState().currentCompany && cos.length > 0 && !me.is_global_admin) {
-            setCurrentCompany(cos[0])
-          }
-          if (!useAuthStore.getState().currentCompany && cos.length === 1) {
             setCurrentCompany(cos[0])
           }
         })

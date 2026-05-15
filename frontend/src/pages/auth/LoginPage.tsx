@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { apiClient, errorMessage } from '@/services/api'
@@ -45,6 +45,16 @@ export default function LoginPage() {
   const setDevAuth = useAuthStore((s) => s.setDevAuth)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  // If the user already has a valid token (e.g. navigated here via back-button
+  // or a stale link), send them straight into the app instead of showing the
+  // login form again.
+  useEffect(() => {
+    const { isAuthenticated, user, currentCompany } = useAuthStore.getState()
+    if (isAuthenticated()) {
+      navigate((user?.is_global_admin && !currentCompany) ? '/admin' : '/dashboard', { replace: true })
+    }
+  }, [navigate])
 
   async function handleDevLogin() {
     setLoading(true)
