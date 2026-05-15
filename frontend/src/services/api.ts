@@ -4,6 +4,7 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios'
 import type { ApiError } from '@/types'
+import { useAuthStore } from '@/store/authStore'
 
 const runtimeConfig = (window as { __KAATS_CONFIG__?: Record<string, string> }).__KAATS_CONFIG__ ?? {}
 const BASE_URL =
@@ -22,25 +23,16 @@ export const apiClient: AxiosInstance = axios.create({
 // ── Request interceptors ──────────────────────────────────────────────────
 
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  // Bearer token — pulled fresh each request so MSAL token refresh is transparent
-  const token = localStorage.getItem('kaats_access_token')
-    ?? sessionStorage.getItem('kaats_access_token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // Read token directly from Zustand store (the token lives in store memory,
+  // persisted to localStorage['kaats-auth'] — NOT to localStorage['kaats_access_token']).
+  const { accessToken, currentCompany } = useAuthStore.getState()
+
+  if (accessToken) {
+    config.headers.Authorization = `Bearer ${accessToken}`
   }
 
-  // Company tenant context
-  try {
-    const raw = localStorage.getItem('kaats-auth')
-    if (raw) {
-      const parsed = JSON.parse(raw) as { state?: { currentCompany?: { slug?: string } } }
-      const slug = parsed?.state?.currentCompany?.slug
-      if (slug) {
-        config.headers['X-Company-Slug'] = slug
-      }
-    }
-  } catch {
-    // ignore parse errors
+  if (currentCompany?.slug) {
+    config.headers['X-Company-Slug'] = currentCompany.slug
   }
 
   // Correlation ID for distributed tracing
@@ -61,11 +53,12 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const status = error.response?.status
 
-    // Auto-redirect on 401
+    // On 401: clear auth state and let React Router redirect gracefully.
+    // Using clearAuth + location.replace avoids a hard reload that interrupts
+    // in-flight React renders and causes blank-screen flashes.
     if (status === 401) {
-      localStorage.removeItem('kaats_access_token')
-      sessionStorage.removeItem('kaats_access_token')
-      window.location.href = '/login'
+      useAuthStore.getState().clearAuth()
+      window.location.replace('/login')
       return Promise.reject(error)
     }
 
