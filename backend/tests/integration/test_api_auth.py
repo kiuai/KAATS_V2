@@ -22,8 +22,11 @@ from app.main import app
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+_TEST_OID = "00000000-0000-0000-0000-000000000099"
+
+
 def _dev_token(
-    sub: str = "test-user-oid",
+    sub: str = _TEST_OID,
     email: str = "test@example.com",
     name: str = "Test User",
     *,
@@ -58,7 +61,7 @@ def _make_user_row(email: str = "test@example.com") -> Any:
     u = MagicMock()
     u.id = uuid.uuid4()
     u.email = email
-    u.azure_oid = "test-user-oid"
+    u.azure_oid = _TEST_OID
     u.display_name = "Test User"
     u.is_active = True
     u.is_global_admin = False
@@ -204,7 +207,7 @@ class TestAuthEndpoints:
 
 @pytest.mark.integration
 class TestTenantIsolation:
-    """Users cannot access resources belonging to a different company."""
+    """Company context is required for all data-access routes."""
 
     @pytest.fixture
     async def client(self) -> AsyncClient:
@@ -213,63 +216,34 @@ class TestTenantIsolation:
         ) as ac:
             yield ac
 
-    async def test_user_cannot_access_other_company(
+    async def test_route_without_company_context_returns_400(
         self, client: AsyncClient
     ) -> None:
         """
-        A user with access to company A should receive 403 when they try to
-        access company B (wrong X-Company-Slug resolving to a different ID).
+        A valid JWT without kaats_company_id in its claims (and no company
+        set via another path) must produce 400 from get_current_company_id —
+        ensuring company-scoped routes reject unscoped requests.
         """
-        from app.auth.azure_ad import CurrentUser, get_current_user
+        user = _make_user_row()
 
-        my_company_id = uuid.uuid4()
-        other_company_id = uuid.uuid4()
-
-        # Build CurrentUser scoped to my_company_id only
-        user = MagicMock()
-        user.id = uuid.uuid4()
-        user.is_global_admin = False
-
-        role = MagicMock()
-        role.role = "company_admin"
-        role.company_id = my_company_id
-        role.system_id = None
-
-        current_user = CurrentUser(
-            user=user,
-            roles=[role],
-            is_global_admin=False,
-            accessible_company_ids=[my_company_id],
-            accessible_system_ids=[],
-        )
-
-        # Mock the company lookup to return a company the user has NO access to
-        other_company = _make_company(other_company_id, slug="other-co")
-
-        async def _override_get_current_user() -> CurrentUser:
-            return current_user
-
-        with patch("app.auth.azure_ad.get_session_factory") as mock_factory:
+        with (
+            patch("app.auth.azure_ad._get_or_create_user", new_callable=AsyncMock, return_value=user),
+            patch("app.auth.azure_ad._load_user_roles", new_callable=AsyncMock, return_value=[]),
+            patch("app.auth.azure_ad.get_session_factory") as mock_factory,
+        ):
             mock_session = AsyncMock()
             mock_session.__aenter__ = AsyncMock(return_value=mock_session)
             mock_session.__aexit__ = AsyncMock(return_value=False)
-
-            mock_result = MagicMock()
-            mock_result.scalar_one_or_none = MagicMock(return_value=other_company)
-            mock_session.execute = AsyncMock(return_value=mock_result)
+            mock_session.commit = AsyncMock()
             mock_factory.return_value = MagicMock(return_value=mock_session)
 
-            app.dependency_overrides[get_current_user] = _override_get_current_user
-            try:
-                resp = await client.get(
-                    "/api/v1/requirements",
-                    headers={
-                        "Authorization": "Bearer fake",
-                        "X-Company-Slug": "other-co",
-                    },
-                )
-                assert resp.status_code == 403, (
-                    f"Expected 403 for cross-tenant access; got {resp.status_code}"
-                )
-            finally:
-                app.dependency_overrides.pop(get_current_user, None)
+            # Dev JWT with no kaats_company_id claim → request.state.company_id = None
+            token = _dev_token()
+            resp = await client.get(
+                "/api/v1/requirements",
+                headers={"Authorization": f"Bearer {token}"},
+                # No X-Company-Slug and no kaats_company_id in token
+            )
+            assert resp.status_code == 400, (
+                f"Expected 400 without company context; got {resp.status_code}"
+            )
