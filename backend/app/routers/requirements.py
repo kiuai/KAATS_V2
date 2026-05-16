@@ -1,4 +1,5 @@
 """Requirements router — paginated list, import two-phase, quality-check, generate-script."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -10,12 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.azure_ad import CurrentUser, get_current_user
 from app.auth.permissions import (
     Permission,
-    any_authenticated,
     can_manage_content,
-    can_run_agents,
     require_system_access,
 )
-from app.dependencies import get_db, get_current_user_id, get_current_company_id
+from app.dependencies import get_current_company_id, get_current_user_id, get_db
 from app.models.enums import UserRoleEnum
 from app.schemas.common import Page
 from app.schemas.requirement import (
@@ -53,6 +52,7 @@ def _get_bpo_domain(current_user: CurrentUser) -> str | None:
 
 
 # ── System-scoped list / create ───────────────────────────────────────────────
+
 
 @router.get("/systems/{system_id}/requirements", response_model=Page[RequirementRead])
 async def list_requirements(
@@ -105,7 +105,11 @@ async def create_requirement(
 
 # ── Import two-phase ──────────────────────────────────────────────────────────
 
-@router.post("/systems/{system_id}/requirements/import/preview", response_model=list[RequirementImportPreview])
+
+@router.post(
+    "/systems/{system_id}/requirements/import/preview",
+    response_model=list[RequirementImportPreview],
+)
 async def import_preview(
     system_id: UUID,
     file: UploadFile = File(...),
@@ -116,7 +120,11 @@ async def import_preview(
     return parse_requirement_file(filename, content)
 
 
-@router.post("/systems/{system_id}/requirements/import/confirm", response_model=list[RequirementRead], status_code=201)
+@router.post(
+    "/systems/{system_id}/requirements/import/confirm",
+    response_model=list[RequirementRead],
+    status_code=201,
+)
 async def import_confirm(
     system_id: UUID,
     body: RequirementImportConfirm,
@@ -138,6 +146,7 @@ async def import_confirm(
 
 # ── Requirement CRUD ──────────────────────────────────────────────────────────
 
+
 @router.get("/requirements/{requirement_id}", response_model=RequirementWithScripts)
 async def get_requirement(
     requirement_id: UUID,
@@ -158,7 +167,9 @@ async def update_requirement(
     return await RequirementService(db).update(requirement_id, body)
 
 
-@router.put("/requirements/{requirement_id}", response_model=RequirementRead, include_in_schema=False)
+@router.put(
+    "/requirements/{requirement_id}", response_model=RequirementRead, include_in_schema=False
+)
 async def update_requirement_put(
     requirement_id: UUID,
     body: RequirementUpdate,
@@ -177,7 +188,11 @@ async def delete_requirement(
     await RequirementService(db).soft_delete(requirement_id)
 
 
-@router.post("/requirements/{requirement_id}/approve", response_model=RequirementRead, dependencies=[can_manage_content])
+@router.post(
+    "/requirements/{requirement_id}/approve",
+    response_model=RequirementRead,
+    dependencies=[can_manage_content],
+)
 async def approve_requirement(
     requirement_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -186,6 +201,7 @@ async def approve_requirement(
 
 
 # ── Quality check ─────────────────────────────────────────────────────────────
+
 
 @router.get("/requirements/{requirement_id}/quality-check", response_model=QualityCheckResult)
 async def quality_check(
@@ -197,6 +213,7 @@ async def quality_check(
 
 
 # ── Generate script ───────────────────────────────────────────────────────────
+
 
 @router.post("/requirements/{requirement_id}/generate-script")
 async def generate_script(

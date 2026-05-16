@@ -211,7 +211,7 @@ export default function TestScriptsPage() {
       render: (row: TestScript) => (
         <div className="flex items-center gap-2">
           {row.ai_generated && (
-            <Zap size={13} className="text-yellow-500 shrink-0" title="AI-generated" />
+            <Zap size={13} className="text-yellow-500 shrink-0" aria-label="AI-generated" />
           )}
           <Link
             to={`/test-scripts/${row.id}`}

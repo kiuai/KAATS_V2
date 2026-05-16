@@ -5,6 +5,7 @@ GET /api/v1/audit/logs  — paginated audit log (audit:log_read permission)
 Global admins see all logs (cross-company).
 Enterprise / company admins see only their company's logs.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,12 +13,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.azure_ad import CurrentUser, get_current_user
 from app.auth.permissions import can_read_audit
 from app.dependencies import get_db
 from app.services.audit_service import AuditService
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 

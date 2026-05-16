@@ -11,6 +11,7 @@ GET /health/ready  — Readiness: 200 when all critical dependencies are up,
 
 Both endpoints are public (no authentication required).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,6 +31,7 @@ router = APIRouter(tags=["ops"])
 # Liveness
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.get("/health/live", include_in_schema=False)
 async def liveness() -> dict[str, str]:
     """Always 200 — proves the process is alive."""
@@ -39,6 +41,7 @@ async def liveness() -> dict[str, str]:
 # ─────────────────────────────────────────────────────────────────────────────
 # Readiness
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("/health/ready", include_in_schema=False)
 async def readiness() -> JSONResponse:
@@ -93,10 +96,13 @@ async def readiness() -> JSONResponse:
 # Individual dependency probes
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 async def _check_database() -> dict[str, Any]:
     try:
         from sqlalchemy import text
+
         from app.database import get_session_factory
+
         async with asyncio.timeout(2.0):
             factory = get_session_factory()
             async with factory() as session:
@@ -111,6 +117,7 @@ async def _check_database() -> dict[str, Any]:
 async def _check_cosmos() -> dict[str, Any]:
     try:
         from app.cosmos import get_cosmos_client
+
         async with asyncio.timeout(2.0):
             client = get_cosmos_client()
             # list_databases is a lightweight metadata call
@@ -127,7 +134,9 @@ async def _check_cosmos() -> dict[str, Any]:
 async def _check_service_bus() -> dict[str, Any]:
     try:
         from azure.servicebus.management import ServiceBusAdministrationClient
+
         from app.config import get_settings
+
         settings = get_settings()
         conn_str = settings.azure_service_bus_connection_string
 
@@ -149,7 +158,9 @@ async def _check_service_bus() -> dict[str, Any]:
 async def _check_blob() -> dict[str, Any]:
     try:
         from azure.storage.blob.aio import BlobServiceClient
+
         from app.config import get_settings
+
         settings = get_settings()
         async with asyncio.timeout(2.0):
             async with BlobServiceClient.from_connection_string(

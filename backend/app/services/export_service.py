@@ -2,14 +2,14 @@
 Export service — converts TestScript records to downloadable format files.
 Uploads output to Blob Storage and returns time-limited SAS URLs.
 """
+
 from __future__ import annotations
 
 import io
 import json
-import re
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
@@ -22,9 +22,13 @@ from app.exporters.base import (
     ExportContext,
     ExportFormatEnum,
     StepType,
-    TestCase as ExportTestCase,
-    TestStep as ExportTestStep,
     get_exporter,
+)
+from app.exporters.base import (
+    TestCase as ExportTestCase,
+)
+from app.exporters.base import (
+    TestStep as ExportTestStep,
 )
 
 log = structlog.get_logger(__name__)
@@ -66,7 +70,7 @@ class ExportService:
         4. Upload to Blob: exports/{company_id}/{system_id}/{script_id}/{format}.{ext}
         5. Return SAS URL (1-hour expiry) + filename + format
         """
-        from app.blob import upload_bytes, generate_sas_url
+        from app.blob import generate_sas_url, upload_bytes
         from app.models.system import System
 
         script = await self._load_script(script_id)
@@ -99,8 +103,7 @@ class ExportService:
         content_bytes = content_str.encode("utf-8")
         filename = exporter.filename(script.title)
         blob_path = (
-            f"exports/{company_id}/{script.system_id}"
-            f"/{script_id}/{export_format}/{filename}"
+            f"exports/{company_id}/{script.system_id}/{script_id}/{export_format}/{filename}"
         )
 
         await upload_bytes(blob_path, content_bytes, exporter.media_type)
@@ -129,7 +132,7 @@ class ExportService:
         Export multiple scripts, zip all files, return ZIP SAS URL.
         Scripts that fail individually are skipped with a warning.
         """
-        from app.blob import upload_bytes, generate_sas_url
+        from app.blob import generate_sas_url, upload_bytes
         from app.models.system import System
 
         zip_buffer = io.BytesIO()
@@ -169,7 +172,7 @@ class ExportService:
                 detail="No scripts could be exported",
             )
 
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
         zip_filename = f"bulk_export_{export_format}_{timestamp}.zip"
         blob_path = f"exports/{company_id}/bulk/{timestamp}/{zip_filename}"
 
@@ -191,9 +194,9 @@ class ExportService:
         company_id: UUID,
     ) -> BulkExportResult:
         """Export all APPROVED scripts in a test cycle as a ZIP."""
+        from app.models.enums import TestScriptStatus
         from app.models.test_cycle import TestAssignment
         from app.models.test_script import TestScript
-        from app.models.enums import TestScriptStatus
 
         result = await self._db.execute(
             select(TestAssignment).where(TestAssignment.test_cycle_id == cycle_id)
@@ -224,7 +227,7 @@ class ExportService:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     async def _load_script(self, script_id: UUID):
-        from app.models.test_script import TestScript, TestCase, TestStep
+        from app.models.test_script import TestCase, TestScript
 
         result = await self._db.execute(
             select(TestScript)
@@ -345,22 +348,26 @@ class ExportService:
             steps: list[ExportTestStep] = []
             for orm_step in getattr(orm_case, "steps", []):
                 params = orm_step.parameters or {}
-                steps.append(ExportTestStep(
-                    number=orm_step.step_number,
-                    action=orm_step.action,
-                    locator_hint=params.get("locator", params.get("selector", "")),
-                    input_value=params.get("value", params.get("input", "")),
-                    expected_result=orm_step.expected_outcome or "",
-                    step_type=self._infer_step_type(orm_step.action),
-                ))
-            cases.append(ExportTestCase(
-                id=str(orm_case.id),
-                title=orm_case.name,
-                description=orm_case.description or "",
-                preconditions=[],
-                steps=steps,
-                expected_outcome="",
-                test_type="positive",
-                priority="medium",
-            ))
+                steps.append(
+                    ExportTestStep(
+                        number=orm_step.step_number,
+                        action=orm_step.action,
+                        locator_hint=params.get("locator", params.get("selector", "")),
+                        input_value=params.get("value", params.get("input", "")),
+                        expected_result=orm_step.expected_outcome or "",
+                        step_type=self._infer_step_type(orm_step.action),
+                    )
+                )
+            cases.append(
+                ExportTestCase(
+                    id=str(orm_case.id),
+                    title=orm_case.name,
+                    description=orm_case.description or "",
+                    preconditions=[],
+                    steps=steps,
+                    expected_outcome="",
+                    test_type="positive",
+                    priority="medium",
+                )
+            )
         return cases

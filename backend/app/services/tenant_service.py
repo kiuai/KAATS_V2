@@ -1,4 +1,5 @@
 """Tenant service — Enterprise and Company CRUD with admin guards."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -29,9 +30,7 @@ class TenantService:
 
     async def list_enterprises(self) -> list[EnterpriseRead]:
         result = await self._db.execute(
-            select(Enterprise)
-            .where(Enterprise.is_active.is_(True))
-            .order_by(Enterprise.name)
+            select(Enterprise).where(Enterprise.is_active.is_(True)).order_by(Enterprise.name)
         )
         return [EnterpriseRead.model_validate(row) for row in result.scalars().all()]
 
@@ -45,9 +44,7 @@ class TenantService:
         return EnterpriseRead.model_validate(enterprise)
 
     async def create_enterprise(self, body: EnterpriseCreate) -> EnterpriseRead:
-        existing = await self._db.scalar(
-            select(Enterprise).where(Enterprise.slug == body.slug)
-        )
+        existing = await self._db.scalar(select(Enterprise).where(Enterprise.slug == body.slug))
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -96,9 +93,7 @@ class TenantService:
         return CompanyRead.model_validate(company)
 
     async def create_company(self, body: CompanyCreate) -> CompanyRead:
-        existing = await self._db.scalar(
-            select(Company).where(Company.slug == body.slug)
-        )
+        existing = await self._db.scalar(select(Company).where(Company.slug == body.slug))
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

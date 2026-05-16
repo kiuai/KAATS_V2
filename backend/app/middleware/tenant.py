@@ -10,14 +10,16 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 log = structlog.get_logger(__name__)
 
-_UNAUTHENTICATED_PATHS = frozenset({
-    "/health",
-    "/health/live",
-    "/health/ready",
-    "/api/v1/auth/login",
-    "/api/v1/auth/callback",
-    "/api/v1/auth/token",
-})
+_UNAUTHENTICATED_PATHS = frozenset(
+    {
+        "/health",
+        "/health/live",
+        "/health/ready",
+        "/api/v1/auth/login",
+        "/api/v1/auth/callback",
+        "/api/v1/auth/token",
+    }
+)
 
 
 class TenantMiddleware(BaseHTTPMiddleware):
@@ -41,7 +43,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
         bind_contextvars(correlation_id=correlation_id)
 
         path = request.url.path
-        if path in _UNAUTHENTICATED_PATHS or path.startswith("/docs") or path.startswith("/openapi"):
+        if (
+            path in _UNAUTHENTICATED_PATHS
+            or path.startswith("/docs")
+            or path.startswith("/openapi")
+        ):
             response = await call_next(request)
             response.headers["X-Correlation-ID"] = correlation_id
             return response
@@ -67,10 +73,7 @@ class TenantMiddleware(BaseHTTPMiddleware):
             oid: str = claims.get("oid") or claims.get("sub", "")
             request.state.azure_oid = oid
             request.state.email = (
-                claims.get("preferred_username")
-                or claims.get("email")
-                or claims.get("upn")
-                or ""
+                claims.get("preferred_username") or claims.get("email") or claims.get("upn") or ""
             )
 
             # user_id is the OID when present, otherwise sub.
@@ -101,18 +104,20 @@ class TenantMiddleware(BaseHTTPMiddleware):
     def _extract_token(request: Request) -> str | None:
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
-            return auth_header[len("Bearer "):]
+            return auth_header[len("Bearer ") :]
         return None
 
     @staticmethod
     def _unauthorized(detail: str, correlation_id: str) -> Response:
-        body = json.dumps({
-            "error": {
-                "code": "UNAUTHENTICATED",
-                "message": detail,
-                "correlation_id": correlation_id,
+        body = json.dumps(
+            {
+                "error": {
+                    "code": "UNAUTHENTICATED",
+                    "message": detail,
+                    "correlation_id": correlation_id,
+                }
             }
-        })
+        )
         response = Response(content=body, status_code=401, media_type="application/json")
         response.headers["X-Correlation-ID"] = correlation_id
         return response

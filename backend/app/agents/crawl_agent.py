@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -12,12 +12,19 @@ from app.agents.tool_registry import ToolContext, build_crawl_tools, build_tools
 from app.ai.client import AzureOpenAIClient
 from app.ai.prompts.crawl_prompts import CRAWL_SYSTEM_PROMPT
 from app.blob import get_blob_service
-from app.models.enums import AgentRunStatus, AgentType, CrawlJobStatus, CrawlerType, CrawlTriggerType
+from app.models.enums import (
+    AgentRunStatus,
+    AgentType,
+    CrawlerType,
+    CrawlJobStatus,
+    CrawlTriggerType,
+)
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.auth.azure_ad import CurrentUser
     from app.models.agent_run import AgentRun
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger(__name__)
 
@@ -50,9 +57,9 @@ class CrawlAgent(BaseAgent):
 
     def __init__(
         self,
-        run: "AgentRun",
-        db: "AsyncSession",
-        current_user: "CurrentUser | None",
+        run: AgentRun,
+        db: AsyncSession,
+        current_user: CurrentUser | None,
         config: dict[str, Any],
     ) -> None:
         super().__init__(run, db, current_user, config)
@@ -117,18 +124,20 @@ class CrawlAgent(BaseAgent):
         )
 
         try:
-            await self._executor.ainvoke({  # type: ignore[union-attr]
-                "input": self._build_input_prompt(
-                    target_url=target_url,
-                    crawler_type=crawler_type,
-                    max_pages=max_pages,
-                    max_depth=max_depth,
-                    auth_config=auth_config,
-                    include_patterns=include_patterns,
-                    exclude_patterns=exclude_patterns,
-                    system_context=system_context,
-                )
-            })
+            await self._executor.ainvoke(
+                {  # type: ignore[union-attr]
+                    "input": self._build_input_prompt(
+                        target_url=target_url,
+                        crawler_type=crawler_type,
+                        max_pages=max_pages,
+                        max_depth=max_depth,
+                        auth_config=auth_config,
+                        include_patterns=include_patterns,
+                        exclude_patterns=exclude_patterns,
+                        system_context=system_context,
+                    )
+                }
+            )
         except Exception as exc:  # noqa: BLE001
             # The agent failed mid-run — record the error and surface a
             # partial output instead of crashing the entire lifecycle.
@@ -166,7 +175,7 @@ class CrawlAgent(BaseAgent):
 
     # ── execute() override — browser + CrawlJob lifecycle ─────────────────────
 
-    async def execute(self) -> "AgentRun":
+    async def execute(self) -> AgentRun:
         """
         Wrap BaseAgent.execute() with:
         - BrowserPool acquisition / release
@@ -218,7 +227,7 @@ class CrawlAgent(BaseAgent):
             scheduled_job_id=self.run.scheduled_job_id,
             agent_run_id=self.run.id,
             created_by=self.run.triggered_by_user_id,
-            started_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            started_at=datetime.now(UTC).replace(tzinfo=None),
         )
         self.db.add(crawl_job)
         await self.db.flush()
@@ -243,7 +252,7 @@ class CrawlAgent(BaseAgent):
             if run_status == AgentRunStatus.COMPLETED.value
             else CrawlJobStatus.FAILED.value
         )
-        crawl_job.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        crawl_job.completed_at = datetime.now(UTC).replace(tzinfo=None)
         if run_status != AgentRunStatus.COMPLETED.value:
             crawl_job.error_message = self.memory.get("executor_error", "")[:1000]
         try:

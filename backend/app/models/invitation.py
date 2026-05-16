@@ -45,12 +45,8 @@ class InvitationToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     email: Mapped[str] = mapped_column(String(320), nullable=False)
-    role: Mapped[str] = mapped_column(
-        String(50), nullable=False, default=UserRoleEnum.QA.value
-    )
-    token: Mapped[str] = mapped_column(
-        String(128), nullable=False, default=_default_token
-    )
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default=UserRoleEnum.QA.value)
+    token: Mapped[str] = mapped_column(String(128), nullable=False, default=_default_token)
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
@@ -60,5 +56,5 @@ class InvitationToken(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
 
-    company: Mapped["Company"] = relationship("Company", foreign_keys=[company_id])
-    invited_by: Mapped["User | None"] = relationship("User", foreign_keys=[invited_by_id])
+    company: Mapped[Company] = relationship("Company", foreign_keys=[company_id])
+    invited_by: Mapped[User | None] = relationship("User", foreign_keys=[invited_by_id])

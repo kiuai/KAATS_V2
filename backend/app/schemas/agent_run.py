@@ -4,9 +4,9 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from app.models.enums import AgentRunStatus, AgentTriggerType, AgentType
+from app.models.enums import AgentType
 
 
 class AgentToolCallRead(BaseModel):

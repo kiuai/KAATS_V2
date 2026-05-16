@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 import { apiClient, errorMessage } from '@/services/api'
-import { msalInstance } from '@/auth/AuthProvider'
+import { msalInstance } from '@/auth/msalInstance'
 import { loginRequest, isDev } from '@/auth/msalConfig'
 import type { User, UserRole, Company } from '@/types'
 
@@ -46,12 +46,21 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
-  // If the user already has a valid token (e.g. navigated here via back-button
-  // or a stale link), send them straight into the app instead of showing the
-  // login form again.
+  // If the user already has a valid token AND MSAL still has a live session
+  // (i.e. this is a genuine "already logged in" visit, not a post-401 reload
+  // where MSAL's cache was cleared), skip the login form and go straight in.
+  //
+  // We check BOTH conditions to prevent the redirect-loop that occurs when:
+  //   1. A backend 401 fires → clearAuth() clears Zustand + clearCache() clears MSAL
+  //   2. window.location.replace('/login') reloads the page
+  //   3. On reload, Zustand reads stale localStorage token (clearAuth cleared it,
+  //      but localStorage may not have flushed yet in some browsers).
+  // Without the MSAL accounts guard, step 3 would make isAuthenticated() briefly
+  // return true, causing a bounce back to the protected page.
   useEffect(() => {
     const { isAuthenticated, user, currentCompany } = useAuthStore.getState()
-    if (isAuthenticated()) {
+    const msalHasSession = msalInstance.getAllAccounts().length > 0
+    if (isAuthenticated() && msalHasSession) {
       navigate((user?.is_global_admin && !currentCompany) ? '/admin' : '/dashboard', { replace: true })
     }
   }, [navigate])

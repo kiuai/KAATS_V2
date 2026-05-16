@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { Bot, CheckCircle, XCircle, Clock } from 'lucide-react'
 import apiClient from '@/services/api'
 import type { AgentRun } from '@/types'
 
-const STATUS_ICON = {
+const STATUS_ICON: Record<string, React.ReactElement> = {
   running: <Clock size={16} className="text-yellow-500 animate-spin" />,
   completed: <CheckCircle size={16} className="text-green-500" />,
   failed: <XCircle size={16} className="text-red-500" />,

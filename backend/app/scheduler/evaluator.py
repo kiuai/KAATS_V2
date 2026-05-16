@@ -1,9 +1,10 @@
 """Schedule evaluator — queries due jobs and dispatches them via AgentDispatcher."""
+
 from __future__ import annotations
 
 import asyncio
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import perf_counter
 
 import structlog
@@ -30,12 +31,13 @@ class ScheduleEvaluator:
         Called by start() and also directly in tests.
         """
         from sqlalchemy import select
+
         from app.models.scheduled_job import ScheduledJob
         from app.scheduler.job_dispatcher import dispatch_scheduled_job
 
         settings = get_settings()
         t0 = perf_counter()
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         jobs_triggered = 0
 
         factory = get_session_factory()
@@ -150,6 +152,7 @@ class ScheduleEvaluator:
 
 
 # ── Module-level helper (backwards compat with Dockerfile.scheduler CMD) ─────
+
 
 async def scheduler_loop() -> None:
     """Entry point called by Dockerfile.scheduler CMD."""

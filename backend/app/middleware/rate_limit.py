@@ -19,6 +19,7 @@ Usage in a router::
     async def some_endpoint(request: Request, ...):
         ...
 """
+
 from __future__ import annotations
 
 from fastapi import Request

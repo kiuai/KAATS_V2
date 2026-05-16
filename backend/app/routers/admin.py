@@ -5,9 +5,10 @@ GET  /admin/companies                   — all companies with usage stats
 GET  /admin/companies/{company_id}      — single company with history
 PATCH /admin/companies/{company_id}/plan — update a company plan tier
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -20,12 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.azure_ad import CurrentUser, get_current_user
 from app.auth.permissions import platform_admin_only
 from app.dependencies import get_db
-from app.services.audit_service import AuditService
 from app.models.agent_run import AgentRun, CompanyTokenUsage
 from app.models.plan import CompanyPlan
 from app.models.role import UserRole
 from app.models.system import System
 from app.models.tenant import Company, Enterprise
+from app.services.audit_service import AuditService
 from app.services.usage_service import UsageService
 
 log = structlog.get_logger(__name__)
@@ -117,7 +118,7 @@ class PlanResponse(BaseModel):
 
 
 def _month_start() -> datetime:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
 
@@ -141,16 +142,13 @@ def _company_stats_stmt(ms: datetime):  # type: ignore[return]
         .group_by(System.company_id)
         .subquery()
     )
-    plan_sq = (
-        select(CompanyPlan.company_id, CompanyPlan.plan_tier)
-        .subquery()
-    )
+    plan_sq = select(CompanyPlan.company_id, CompanyPlan.plan_tier).subquery()
     token_sq = (
         select(
             CompanyTokenUsage.company_id,
-            func.sum(
-                CompanyTokenUsage.prompt_tokens + CompanyTokenUsage.completion_tokens
-            ).label("tokens_this_month"),
+            func.sum(CompanyTokenUsage.prompt_tokens + CompanyTokenUsage.completion_tokens).label(
+                "tokens_this_month"
+            ),
             func.sum(CompanyTokenUsage.total_cost_usd).label("cost_this_month"),
         )
         .where(CompanyTokenUsage.usage_date >= ms)
@@ -207,41 +205,44 @@ async def get_platform_overview(
 ) -> PlatformOverview:
     ms = _month_start()
 
-    total_enterprises = int(
-        (await db.execute(select(func.count(Enterprise.id)))).scalar() or 0
-    )
+    total_enterprises = int((await db.execute(select(func.count(Enterprise.id)))).scalar() or 0)
     active_enterprises = int(
-        (await db.execute(
-            select(func.count(Enterprise.id)).where(Enterprise.is_active == True)  # noqa: E712
-        )).scalar() or 0
+        (
+            await db.execute(
+                select(func.count(Enterprise.id)).where(Enterprise.is_active == True)  # noqa: E712
+            )
+        ).scalar()
+        or 0
     )
-    total_companies = int(
-        (await db.execute(select(func.count(Company.id)))).scalar() or 0
-    )
+    total_companies = int((await db.execute(select(func.count(Company.id)))).scalar() or 0)
     active_companies = int(
-        (await db.execute(
-            select(func.count(Company.id)).where(Company.is_active == True)  # noqa: E712
-        )).scalar() or 0
+        (
+            await db.execute(
+                select(func.count(Company.id)).where(Company.is_active == True)  # noqa: E712
+            )
+        ).scalar()
+        or 0
     )
     total_users = int(
-        (await db.execute(
-            select(func.count(distinct(UserRole.user_id)))
-        )).scalar() or 0
+        (await db.execute(select(func.count(distinct(UserRole.user_id))))).scalar() or 0
     )
     runs_this_month = int(
-        (await db.execute(
-            select(func.count(AgentRun.id)).where(AgentRun.created_at >= ms)
-        )).scalar() or 0
+        (
+            await db.execute(select(func.count(AgentRun.id)).where(AgentRun.created_at >= ms))
+        ).scalar()
+        or 0
     )
-    token_row = (await db.execute(
-        select(
-            func.coalesce(
-                func.sum(CompanyTokenUsage.prompt_tokens + CompanyTokenUsage.completion_tokens),
-                0,
-            ).label("tokens"),
-            func.coalesce(func.sum(CompanyTokenUsage.total_cost_usd), 0).label("cost"),
-        ).where(CompanyTokenUsage.usage_date >= ms)
-    )).one()
+    token_row = (
+        await db.execute(
+            select(
+                func.coalesce(
+                    func.sum(CompanyTokenUsage.prompt_tokens + CompanyTokenUsage.completion_tokens),
+                    0,
+                ).label("tokens"),
+                func.coalesce(func.sum(CompanyTokenUsage.total_cost_usd), 0).label("cost"),
+            ).where(CompanyTokenUsage.usage_date >= ms)
+        )
+    ).one()
 
     return PlatformOverview(
         total_enterprises=total_enterprises,

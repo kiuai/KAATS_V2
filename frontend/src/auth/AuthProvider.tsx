@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
 import {
-  PublicClientApplication,
   EventType,
   type AccountInfo,
   type AuthenticationResult,
 } from '@azure/msal-browser'
 import { MsalProvider, useMsal, useIsAuthenticated } from '@azure/msal-react'
-import { msalConfig, loginRequest, isDev } from './msalConfig'
+import { loginRequest, isDev } from './msalConfig'
+import { msalInstance } from './msalInstance'
 import { useAuthStore } from '@/store/authStore'
 import { apiClient } from '@/services/api'
 import type { Company, User, UserRole } from '@/types'
@@ -43,9 +43,8 @@ interface MeOut {
   }>
 }
 
-// ── MSAL instance (singleton) ─────────────────────────────────────────────
-
-export const msalInstance = new PublicClientApplication(msalConfig)
+// ── MSAL instance (singleton, defined in msalInstance.ts) ────────────────
+export { msalInstance }
 
 // Set active account and store token on login events.
 // LOGIN_SUCCESS fires during handleRedirectPromise (inside MsalProvider.initialize)

@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import CrawlJobStatus, CrawlerType, CrawlTriggerType, PageType
-
-if TYPE_CHECKING:
-    from app.models.user import User
+from app.models.enums import CrawlerType, CrawlJobStatus, CrawlTriggerType, PageType
 
 
 class CrawlJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -54,7 +50,7 @@ class CrawlJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("users.id")
     )
 
-    pages: Mapped[list["CrawlPage"]] = relationship("CrawlPage", back_populates="crawl_job")
+    pages: Mapped[list[CrawlPage]] = relationship("CrawlPage", back_populates="crawl_job")
 
 
 class CrawlPage(Base, UUIDPrimaryKeyMixin):
@@ -77,4 +73,4 @@ class CrawlPage(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=False), server_default="GETUTCDATE()", nullable=False
     )
 
-    crawl_job: Mapped["CrawlJob"] = relationship("CrawlJob", back_populates="pages")
+    crawl_job: Mapped[CrawlJob] = relationship("CrawlJob", back_populates="pages")

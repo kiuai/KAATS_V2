@@ -46,7 +46,7 @@ class ScheduledJobCreate(BaseModel):
     max_failures: int = Field(default=3, ge=1, le=10)
 
     @model_validator(mode="after")
-    def validate_schedule(self) -> "ScheduledJobCreate":
+    def validate_schedule(self) -> ScheduledJobCreate:
         if self.schedule_type == ScheduleType.RECURRING and not self.cron_expression:
             raise ValueError("cron_expression is required for RECURRING jobs")
         if self.schedule_type == ScheduleType.ONE_SHOT and not self.run_at:

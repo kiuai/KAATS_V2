@@ -7,18 +7,19 @@ PATCH  /webhooks/{id}                      — update endpoint
 DELETE /webhooks/{id}                      — delete endpoint
 GET    /webhooks/{id}/deliveries           — delivery log
 """
+
 from __future__ import annotations
 
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, HttpUrl
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.azure_ad import CurrentUser, get_current_user
-from app.auth.permissions import any_authenticated, can_manage_company
-from app.dependencies import get_current_company_id, get_current_user_id, get_db
+from app.auth.permissions import can_manage_company
+from app.dependencies import get_current_company_id, get_db
 from app.services.webhook_service import WebhookService
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -54,7 +55,7 @@ class WebhookEndpointRead(BaseModel):
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_orm_obj(cls, ep) -> "WebhookEndpointRead":  # type: ignore[override]
+    def from_orm_obj(cls, ep) -> WebhookEndpointRead:  # type: ignore[override]
         return cls(
             id=ep.id,
             company_id=ep.company_id,
@@ -92,7 +93,9 @@ async def list_endpoints(
     return [WebhookEndpointRead.from_orm_obj(ep) for ep in eps]
 
 
-@router.post("", response_model=WebhookEndpointRead, status_code=201, dependencies=[can_manage_company])
+@router.post(
+    "", response_model=WebhookEndpointRead, status_code=201, dependencies=[can_manage_company]
+)
 async def create_endpoint(
     body: WebhookEndpointCreate,
     request: Request,
@@ -127,7 +130,9 @@ async def get_endpoint(
     return WebhookEndpointRead.from_orm_obj(ep)
 
 
-@router.patch("/{endpoint_id}", response_model=WebhookEndpointRead, dependencies=[can_manage_company])
+@router.patch(
+    "/{endpoint_id}", response_model=WebhookEndpointRead, dependencies=[can_manage_company]
+)
 async def update_endpoint(
     endpoint_id: UUID,
     body: WebhookEndpointUpdate,
@@ -152,7 +157,9 @@ async def update_endpoint(
     return WebhookEndpointRead.from_orm_obj(ep)
 
 
-@router.delete("/{endpoint_id}", status_code=204, response_model=None, dependencies=[can_manage_company])
+@router.delete(
+    "/{endpoint_id}", status_code=204, response_model=None, dependencies=[can_manage_company]
+)
 async def delete_endpoint(
     endpoint_id: UUID,
     request: Request,

@@ -60,7 +60,9 @@ def _build_engine() -> AsyncEngine:
             @event.listens_for(engine.sync_engine, "do_connect")
             def _inject_token(dialect: Any, conn_rec: Any, cargs: Any, cparams: Any) -> None:
                 token = _msi_credential.get_token("https://database.windows.net/.default")
-                cparams["attrs_before"] = {_SQL_COPT_SS_ACCESS_TOKEN: _make_token_struct(token.token)}
+                cparams["attrs_before"] = {
+                    _SQL_COPT_SS_ACCESS_TOKEN: _make_token_struct(token.token)
+                }
 
         except ImportError:
             log.warning("azure_identity.not_installed", detail="token injection unavailable")
@@ -98,12 +100,7 @@ async def set_tenant_context(conn: AsyncConnection, company_id: Any) -> None:
     # The value must be a string (sql_variant); cast UUID if needed.
     value = str(company_id) if not isinstance(company_id, str) else company_id
     await conn.execute(
-        text(
-            "EXEC sp_set_session_context "
-            "@key = N'tenant_id', "
-            "@value = :value, "
-            "@read_only = 1"
-        ),
+        text("EXEC sp_set_session_context @key = N'tenant_id', @value = :value, @read_only = 1"),
         {"value": value},
     )
 

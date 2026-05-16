@@ -43,7 +43,9 @@ function eventBadge(eventType: string) {
 }
 
 export default function AuditLogPage() {
-  const canRead = usePermission('admin:global') || usePermission('admin:enterprise')
+  const canReadGlobal = usePermission('admin:global')
+  const canReadEnterprise = usePermission('admin:enterprise')
+  const canRead = canReadGlobal || canReadEnterprise
   const [eventTypeFilter, setEventTypeFilter] = useState('')
   const [skip, setSkip] = useState(0)
   const limit = 50

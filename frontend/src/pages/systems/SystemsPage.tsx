@@ -77,8 +77,8 @@ export default function SystemsPage() {
                   <h3 className="font-semibold text-gray-900">{s.name}</h3>
                   <p className="text-xs text-gray-500 mt-0.5">{s.system_type}</p>
                 </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${s.status === 'active' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                  {s.status}
+                <span className={`text-xs px-2 py-0.5 rounded-full ${s.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {s.is_active ? 'active' : 'inactive'}
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-2 truncate">{s.base_url}</p>

@@ -2,9 +2,8 @@
 
 GET /search?q=<term>   — cross-entity search, company-scoped
 """
-from __future__ import annotations
 
-from typing import Any
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel

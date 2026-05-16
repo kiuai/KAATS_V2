@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.crawler.web_crawler import WebCrawler
 from app.crawler.base import CrawlResult
+from app.crawler.web_crawler import WebCrawler
 
 
 class SapFioriCrawler(WebCrawler):

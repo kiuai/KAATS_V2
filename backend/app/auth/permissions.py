@@ -8,7 +8,6 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.models.enums import UserRoleEnum
 
-
 # ── Permission enum ──────────────────────────────────────────────────────────
 
 
@@ -91,96 +90,151 @@ _ALL: frozenset[Permission] = frozenset(Permission)
 
 ROLE_PERMISSIONS: dict[UserRoleEnum, frozenset[Permission]] = {
     UserRoleEnum.GLOBAL_ADMIN: _ALL,
-
     UserRoleEnum.ENTERPRISE_ADMIN: _ALL - {Permission.ADMIN_GLOBAL},
-
-    UserRoleEnum.COMPANY_ADMIN: frozenset({
-        Permission.COMPANY_READ, Permission.COMPANY_MANAGE,
-        Permission.USER_READ, Permission.USER_INVITE, Permission.USER_UPDATE,
-        Permission.USER_DEACTIVATE, Permission.USER_ASSIGN_ROLE,
-        Permission.SYSTEM_READ, Permission.SYSTEM_CREATE,
-        Permission.SYSTEM_UPDATE, Permission.SYSTEM_DELETE,
-        Permission.REQ_READ, Permission.REQ_CREATE, Permission.REQ_UPDATE,
-        Permission.REQ_DELETE, Permission.REQ_IMPORT,
-        Permission.SCRIPT_READ, Permission.SCRIPT_CREATE, Permission.SCRIPT_UPDATE,
-        Permission.SCRIPT_DELETE, Permission.SCRIPT_APPROVE, Permission.SCRIPT_EXPORT,
-        Permission.CYCLE_READ, Permission.CYCLE_CREATE,
-        Permission.CYCLE_UPDATE, Permission.CYCLE_DELETE,
-        Permission.ASSIGNMENT_CREATE, Permission.ASSIGNMENT_UPDATE,
-        Permission.RESULT_READ, Permission.RESULT_CREATE,
-        Permission.AGENT_CRAWL, Permission.AGENT_GENERATE, Permission.AGENT_EXECUTE,
-        Permission.SCHEDULE_READ, Permission.SCHEDULE_CREATE,
-        Permission.SCHEDULE_UPDATE, Permission.SCHEDULE_DELETE,
-        Permission.EVIDENCE_READ, Permission.EVIDENCE_EXPORT,
-        Permission.REPORT_READ, Permission.REPORT_EXPORT,
-        Permission.ADMIN_COMPANY, Permission.AI_USAGE_READ,
-    }),
-
-    UserRoleEnum.SYSTEM_MANAGER: frozenset({
-        Permission.SYSTEM_READ, Permission.SYSTEM_MANAGE_OWN,
-        Permission.REQ_READ, Permission.REQ_CREATE, Permission.REQ_UPDATE,
-        Permission.REQ_DELETE, Permission.REQ_IMPORT,
-        Permission.SCRIPT_READ, Permission.SCRIPT_CREATE, Permission.SCRIPT_UPDATE,
-        Permission.SCRIPT_APPROVE, Permission.SCRIPT_EXPORT,
-        Permission.CYCLE_READ, Permission.CYCLE_CREATE,
-        Permission.ASSIGNMENT_CREATE,
-        Permission.RESULT_READ,
-        Permission.AGENT_CRAWL, Permission.AGENT_GENERATE, Permission.AGENT_EXECUTE,
-        Permission.SCHEDULE_READ, Permission.SCHEDULE_CREATE,
-        Permission.SCHEDULE_UPDATE, Permission.SCHEDULE_DELETE,
-        Permission.EVIDENCE_READ,
-        Permission.REPORT_READ, Permission.REPORT_EXPORT,
-        Permission.USER_READ, Permission.AI_USAGE_READ,
-    }),
-
-    UserRoleEnum.VALIDATION_LEAD: frozenset({
-        Permission.CYCLE_READ, Permission.CYCLE_CREATE,
-        Permission.CYCLE_UPDATE, Permission.CYCLE_DELETE,
-        Permission.ASSIGNMENT_CREATE, Permission.ASSIGNMENT_UPDATE,
-        Permission.SCRIPT_READ, Permission.SCRIPT_APPROVE, Permission.SCRIPT_EXPORT,
-        Permission.REQ_READ,
-        Permission.RESULT_READ,
-        Permission.REPORT_READ, Permission.REPORT_EXPORT,
-        Permission.EVIDENCE_READ,
-        Permission.AGENT_EXECUTE,
-        Permission.USER_READ,
-    }),
-
-    UserRoleEnum.QA: frozenset({
-        Permission.RESULT_READ, Permission.RESULT_CREATE,
-        Permission.ASSIGNMENT_UPDATE,
-        Permission.SCRIPT_READ,
-        Permission.REQ_READ,
-        Permission.EVIDENCE_READ,
-        Permission.REPORT_READ,
-        Permission.USER_READ,
-        Permission.AGENT_CRAWL, Permission.AGENT_GENERATE, Permission.AGENT_EXECUTE,
-    }),
-
-    UserRoleEnum.VALIDATION_TESTER: frozenset({
-        Permission.SCRIPT_READ, Permission.SCRIPT_CREATE, Permission.SCRIPT_UPDATE,
-        Permission.REQ_READ,
-        Permission.RESULT_CREATE,
-        Permission.ASSIGNMENT_UPDATE,
-        Permission.EVIDENCE_READ,
-        Permission.USER_READ,
-    }),
-
-    UserRoleEnum.BPO: frozenset({
-        Permission.REQ_READ,
-        Permission.SCRIPT_READ, Permission.SCRIPT_APPROVE,
-        Permission.RESULT_READ,
-        Permission.REPORT_READ,
-        Permission.EVIDENCE_READ,
-        Permission.USER_READ,
-    }),
+    UserRoleEnum.COMPANY_ADMIN: frozenset(
+        {
+            Permission.COMPANY_READ,
+            Permission.COMPANY_MANAGE,
+            Permission.USER_READ,
+            Permission.USER_INVITE,
+            Permission.USER_UPDATE,
+            Permission.USER_DEACTIVATE,
+            Permission.USER_ASSIGN_ROLE,
+            Permission.SYSTEM_READ,
+            Permission.SYSTEM_CREATE,
+            Permission.SYSTEM_UPDATE,
+            Permission.SYSTEM_DELETE,
+            Permission.REQ_READ,
+            Permission.REQ_CREATE,
+            Permission.REQ_UPDATE,
+            Permission.REQ_DELETE,
+            Permission.REQ_IMPORT,
+            Permission.SCRIPT_READ,
+            Permission.SCRIPT_CREATE,
+            Permission.SCRIPT_UPDATE,
+            Permission.SCRIPT_DELETE,
+            Permission.SCRIPT_APPROVE,
+            Permission.SCRIPT_EXPORT,
+            Permission.CYCLE_READ,
+            Permission.CYCLE_CREATE,
+            Permission.CYCLE_UPDATE,
+            Permission.CYCLE_DELETE,
+            Permission.ASSIGNMENT_CREATE,
+            Permission.ASSIGNMENT_UPDATE,
+            Permission.RESULT_READ,
+            Permission.RESULT_CREATE,
+            Permission.AGENT_CRAWL,
+            Permission.AGENT_GENERATE,
+            Permission.AGENT_EXECUTE,
+            Permission.SCHEDULE_READ,
+            Permission.SCHEDULE_CREATE,
+            Permission.SCHEDULE_UPDATE,
+            Permission.SCHEDULE_DELETE,
+            Permission.EVIDENCE_READ,
+            Permission.EVIDENCE_EXPORT,
+            Permission.REPORT_READ,
+            Permission.REPORT_EXPORT,
+            Permission.ADMIN_COMPANY,
+            Permission.AI_USAGE_READ,
+        }
+    ),
+    UserRoleEnum.SYSTEM_MANAGER: frozenset(
+        {
+            Permission.SYSTEM_READ,
+            Permission.SYSTEM_MANAGE_OWN,
+            Permission.REQ_READ,
+            Permission.REQ_CREATE,
+            Permission.REQ_UPDATE,
+            Permission.REQ_DELETE,
+            Permission.REQ_IMPORT,
+            Permission.SCRIPT_READ,
+            Permission.SCRIPT_CREATE,
+            Permission.SCRIPT_UPDATE,
+            Permission.SCRIPT_APPROVE,
+            Permission.SCRIPT_EXPORT,
+            Permission.CYCLE_READ,
+            Permission.CYCLE_CREATE,
+            Permission.ASSIGNMENT_CREATE,
+            Permission.RESULT_READ,
+            Permission.AGENT_CRAWL,
+            Permission.AGENT_GENERATE,
+            Permission.AGENT_EXECUTE,
+            Permission.SCHEDULE_READ,
+            Permission.SCHEDULE_CREATE,
+            Permission.SCHEDULE_UPDATE,
+            Permission.SCHEDULE_DELETE,
+            Permission.EVIDENCE_READ,
+            Permission.REPORT_READ,
+            Permission.REPORT_EXPORT,
+            Permission.USER_READ,
+            Permission.AI_USAGE_READ,
+        }
+    ),
+    UserRoleEnum.VALIDATION_LEAD: frozenset(
+        {
+            Permission.CYCLE_READ,
+            Permission.CYCLE_CREATE,
+            Permission.CYCLE_UPDATE,
+            Permission.CYCLE_DELETE,
+            Permission.ASSIGNMENT_CREATE,
+            Permission.ASSIGNMENT_UPDATE,
+            Permission.SCRIPT_READ,
+            Permission.SCRIPT_APPROVE,
+            Permission.SCRIPT_EXPORT,
+            Permission.REQ_READ,
+            Permission.RESULT_READ,
+            Permission.REPORT_READ,
+            Permission.REPORT_EXPORT,
+            Permission.EVIDENCE_READ,
+            Permission.AGENT_EXECUTE,
+            Permission.USER_READ,
+        }
+    ),
+    UserRoleEnum.QA: frozenset(
+        {
+            Permission.RESULT_READ,
+            Permission.RESULT_CREATE,
+            Permission.ASSIGNMENT_UPDATE,
+            Permission.SCRIPT_READ,
+            Permission.REQ_READ,
+            Permission.EVIDENCE_READ,
+            Permission.REPORT_READ,
+            Permission.USER_READ,
+            Permission.AGENT_CRAWL,
+            Permission.AGENT_GENERATE,
+            Permission.AGENT_EXECUTE,
+        }
+    ),
+    UserRoleEnum.VALIDATION_TESTER: frozenset(
+        {
+            Permission.SCRIPT_READ,
+            Permission.SCRIPT_CREATE,
+            Permission.SCRIPT_UPDATE,
+            Permission.REQ_READ,
+            Permission.RESULT_CREATE,
+            Permission.ASSIGNMENT_UPDATE,
+            Permission.EVIDENCE_READ,
+            Permission.USER_READ,
+        }
+    ),
+    UserRoleEnum.BPO: frozenset(
+        {
+            Permission.REQ_READ,
+            Permission.SCRIPT_READ,
+            Permission.SCRIPT_APPROVE,
+            Permission.RESULT_READ,
+            Permission.REPORT_READ,
+            Permission.EVIDENCE_READ,
+            Permission.USER_READ,
+        }
+    ),
 }
 
 
 # ── System ownership ─────────────────────────────────────────────────────────
 
 
-def check_system_ownership(user: "CurrentUser", system_id: UUID) -> bool:
+def check_system_ownership(user: CurrentUser, system_id: UUID) -> bool:
     """
     Returns True if the user has management ownership over a specific system.
 
@@ -216,11 +270,13 @@ def check_system_ownership(user: "CurrentUser", system_id: UUID) -> bool:
 
 # Permissions that require SYSTEM_MANAGER to own the system.
 # (SM gets SYSTEM_READ company-wide but can only *manage* their own systems.)
-_OWNERSHIP_GATED: frozenset[Permission] = frozenset({
-    Permission.SYSTEM_MANAGE_OWN,
-    Permission.SYSTEM_UPDATE,
-    Permission.SYSTEM_DELETE,
-})
+_OWNERSHIP_GATED: frozenset[Permission] = frozenset(
+    {
+        Permission.SYSTEM_MANAGE_OWN,
+        Permission.SYSTEM_UPDATE,
+        Permission.SYSTEM_DELETE,
+    }
+)
 
 
 def require_system_access(

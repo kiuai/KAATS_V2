@@ -31,7 +31,7 @@ export default function FileUploadZone({
     [maxSizeMb, onFile],
   )
 
-  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const onDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files[0]

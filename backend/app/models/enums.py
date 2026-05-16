@@ -3,10 +3,10 @@
 These Python enums are used in SQLAlchemy models (via String columns with
 check constraints) and re-exported in Pydantic schemas for API validation.
 """
+
 from __future__ import annotations
 
 from enum import Enum
-
 
 # ── Tenancy & Users ───────────────────────────────────────────────────────────
 

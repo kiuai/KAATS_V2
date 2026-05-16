@@ -5,6 +5,7 @@ GET  /api/v1/usage/history  — monthly history, last N months (any authenticate
 GET  /api/v1/usage/plan     — company plan details (company_admin+)
 PATCH /api/v1/usage/plan    — update plan tier / limits (global_admin only)
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -13,12 +14,12 @@ from uuid import UUID
 import structlog
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.azure_ad import CurrentUser, get_current_user
 from app.auth.permissions import any_authenticated, can_manage_company, platform_admin_only
 from app.dependencies import get_current_company_id, get_db
 from app.services.usage_service import UsageService
-from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger(__name__)
 

@@ -4,12 +4,13 @@ Searches across: systems, requirements, test scripts, test cycles, agent runs.
 Results are scoped to the caller's company_id (RLS is set by TenantMiddleware
 but we also filter explicitly for safety).
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import Any
 
-from sqlalchemy import select, or_
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -106,8 +107,8 @@ class SearchService:
     async def _search_test_scripts(
         self, term: str, company_id: uuid.UUID, limit: int
     ) -> list[dict[str, Any]]:
-        from app.models.test_script import TestScript
         from app.models.system import System
+        from app.models.test_script import TestScript
 
         result = await self._db.execute(
             select(TestScript.id, TestScript.title, TestScript.system_id)

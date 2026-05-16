@@ -1,14 +1,15 @@
 """Selenium Python (pytest + WebDriverWait) exporter."""
+
 from __future__ import annotations
 
 import re
 
 from app.exporters.base import BaseExporter, ExportContext, StepType, TestCase, TestStep
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _safe_name(text: str) -> str:
     return re.sub(r"[^\w]", "_", text.lower().strip())[:60]
@@ -81,7 +82,9 @@ def _step_to_py(step: TestStep, indent: str = "        ") -> list[str]:
         if step.expected_result:
             expected = _py_str(step.expected_result)
             lines.append(f'{indent}assert "{expected}" in el.text, (')
-            lines.append(f'{indent}    f"Expected \\"{expected}\\" in element text, got: {{el.text}}"')
+            lines.append(
+                f'{indent}    f"Expected \\"{expected}\\" in element text, got: {{el.text}}"'
+            )
             lines.append(f"{indent})")
         else:
             lines.append(f'{indent}assert el.is_displayed(), "Element should be visible"')
@@ -110,6 +113,7 @@ def _step_to_py(step: TestStep, indent: str = "        ") -> list[str]:
 # Exporter
 # ---------------------------------------------------------------------------
 
+
 class SeleniumExporter(BaseExporter):
     """Generates pytest + Selenium WebDriver Python tests (.py)."""
 
@@ -123,9 +127,10 @@ class SeleniumExporter(BaseExporter):
     def export(self, test_cases: list[TestCase], context: ExportContext | None = None) -> str:
         base_url = (context.base_url if context else "") or "http://localhost:3000"
         system_name = context.system_name if context else "SystemTests"
-        class_name = "".join(
-            w.capitalize() for w in re.sub(r"[^\w\s]", "", system_name).split()
-        ) or "TestSuite"
+        class_name = (
+            "".join(w.capitalize() for w in re.sub(r"[^\w\s]", "", system_name).split())
+            or "TestSuite"
+        )
 
         lines: list[str] = [
             "import pytest",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -27,7 +27,7 @@ class ToolContext:
     memory: AgentMemory
     ai_client: AzureOpenAIClient
     # Browser-based agents set these before building their tools.
-    page: Any = field(default=None)           # Playwright Page
+    page: Any = field(default=None)  # Playwright Page
     crawl_job_id: UUID | None = field(default=None)
 
 
@@ -121,8 +121,7 @@ def _make_take_screenshot(ctx: ToolContext) -> StructuredTool:
         try:
             png_bytes = base64.b64decode(page_b64)
             blob_name = (
-                f"tenant/{ctx.company_id}/evidence"
-                f"/{ctx.agent_run_id}/{label.replace(' ', '_')}.png"
+                f"tenant/{ctx.company_id}/evidence/{ctx.agent_run_id}/{label.replace(' ', '_')}.png"
             )
             container_client = ctx.blob_client.get_container_client("kaats-evidence")
             await container_client.upload_blob(
@@ -344,10 +343,7 @@ def _make_take_page_screenshot(ctx: ToolContext) -> StructuredTool:
         try:
             png_bytes = await ctx.page.screenshot(full_page=True)
             safe_label = label.replace(" ", "_").replace("/", "_")[:80]
-            blob_name = (
-                f"tenant/{ctx.company_id}/crawl"
-                f"/{ctx.agent_run_id}/{safe_label}.png"
-            )
+            blob_name = f"tenant/{ctx.company_id}/crawl/{ctx.agent_run_id}/{safe_label}.png"
             container = ctx.blob_client.get_container_client("kaats-evidence")
             await container.upload_blob(
                 name=blob_name,
@@ -377,9 +373,7 @@ def _make_take_page_screenshot(ctx: ToolContext) -> StructuredTool:
 
 
 def _make_analyze_page_with_ai(ctx: ToolContext) -> StructuredTool:
-    async def analyze_page_with_ai(
-        page_title: str, page_type: str, elements_json: str
-    ) -> str:
+    async def analyze_page_with_ai(page_title: str, page_type: str, elements_json: str) -> str:
         """
         Call Azure OpenAI to summarise the business purpose of the page,
         identify the business process it supports, and list 1-3 testable
@@ -426,11 +420,13 @@ def _make_analyze_page_with_ai(ctx: ToolContext) -> StructuredTool:
             # Fall back to plain-text completion
             try:
                 plain = await ctx.ai_client.complete(messages, max_tokens=1024)
-                return json.dumps({
-                    "summary": plain[:500],
-                    "business_process": "unknown",
-                    "requirements": [],
-                })
+                return json.dumps(
+                    {
+                        "summary": plain[:500],
+                        "business_process": "unknown",
+                        "requirements": [],
+                    }
+                )
             except Exception:
                 return f"error: {exc}"
 
@@ -474,12 +470,13 @@ def _make_save_crawl_page(ctx: ToolContext) -> StructuredTool:
                 ui_elements=elements,
                 screenshot_blob_url=(
                     screenshot_url
-                    if screenshot_url and not screenshot_url.startswith("error")
+                    if screenshot_url
+                    and not screenshot_url.startswith("error")
                     and not screenshot_url.startswith("screenshot_")
                     else None
                 ),
                 ai_summary=ai_summary[:5_000] if ai_summary else None,
-                crawled_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                crawled_at=datetime.now(UTC).replace(tzinfo=None),
             )
             ctx.db.add(page_record)
             await ctx.db.flush()
@@ -510,9 +507,7 @@ def _make_save_crawl_page(ctx: ToolContext) -> StructuredTool:
 
 
 def _make_save_requirement(ctx: ToolContext) -> StructuredTool:
-    async def save_requirement(
-        title: str, description: str, source_page_id: str
-    ) -> str:
+    async def save_requirement(title: str, description: str, source_page_id: str) -> str:
         """Create a Requirement record linked to this crawl job. Returns the requirement ID."""
         from uuid import UUID as _UUID
 
@@ -638,9 +633,7 @@ def _make_handle_sap_fiori_login(ctx: ToolContext) -> StructuredTool:
                 "input[name=logonpassfield]",
             ]
 
-            await ctx.page.wait_for_selector(
-                ", ".join(username_selectors), timeout=10_000
-            )
+            await ctx.page.wait_for_selector(", ".join(username_selectors), timeout=10_000)
             await ctx.page.fill(", ".join(username_selectors), username)
             await ctx.page.fill(", ".join(password_selectors), password)
 
@@ -764,9 +757,7 @@ def _make_launch_sap_fiori_app(ctx: ToolContext) -> StructuredTool:
             ctx.memory.add_to_set("visited_urls", current_url)
             return current_url
         except Exception as exc:
-            log.warning(
-                "crawl.sap_launch_app_failed", tile=tile_title, error=str(exc)
-            )
+            log.warning("crawl.sap_launch_app_failed", tile=tile_title, error=str(exc))
             return f"error: {exc}"
 
     return StructuredTool.from_function(
@@ -901,16 +892,18 @@ def _make_load_requirement(ctx: ToolContext) -> StructuredTool:
         if req.is_deleted:
             return f"error: requirement {requirement_id} has been deleted"
 
-        return json.dumps({
-            "id": str(req.id),
-            "title": req.title,
-            "description": req.description,
-            "source_type": req.source_type,
-            "business_domain": req.business_domain or "",
-            "priority": req.priority,
-            "status": req.status,
-            "tags": req.tags or [],
-        })
+        return json.dumps(
+            {
+                "id": str(req.id),
+                "title": req.title,
+                "description": req.description,
+                "source_type": req.source_type,
+                "business_domain": req.business_domain or "",
+                "priority": req.priority,
+                "status": req.status,
+                "tags": req.tags or [],
+            }
+        )
 
     return StructuredTool.from_function(
         coroutine=load_requirement,
@@ -965,12 +958,14 @@ def _make_check_requirement_quality(ctx: ToolContext) -> StructuredTool:
         except Exception as exc:
             log.warning("generation.quality_check_failed", error=str(exc))
             # Fallback: assume testable so we don't block the pipeline
-            return json.dumps({
-                "score": 50,
-                "issues": [f"Quality check failed: {exc}"],
-                "suggestions": [],
-                "is_testable": True,
-            })
+            return json.dumps(
+                {
+                    "score": 50,
+                    "issues": [f"Quality check failed: {exc}"],
+                    "suggestions": [],
+                    "is_testable": True,
+                }
+            )
 
     return StructuredTool.from_function(
         coroutine=check_requirement_quality,
@@ -983,15 +978,14 @@ def _make_check_requirement_quality(ctx: ToolContext) -> StructuredTool:
 
 
 def _make_generate_test_cases(ctx: ToolContext) -> StructuredTool:
-    async def generate_test_cases(
-        requirement_json: str, quality_report_json: str
-    ) -> str:
+    async def generate_test_cases(requirement_json: str, quality_report_json: str) -> str:
         """
         Generate structured test cases from a requirement using AI.
         Returns a JSON object {test_cases: [...]}.
         """
-        from pydantic import BaseModel as _BM
         from typing import Literal as _Lit
+
+        from pydantic import BaseModel as _BM
 
         from app.ai.prompts.generation_prompts import REQUIREMENT_TO_TEST_CASES_PROMPT
 
@@ -1019,8 +1013,7 @@ def _make_generate_test_cases(ctx: ToolContext) -> StructuredTool:
         system_context = ctx.memory.get("system_context", "")
 
         user_content = (
-            REQUIREMENT_TO_TEST_CASES_PROMPT
-            .replace("{requirement_json}", requirement_json[:3_000])
+            REQUIREMENT_TO_TEST_CASES_PROMPT.replace("{requirement_json}", requirement_json[:3_000])
             .replace("{quality_report_json}", quality_report_json[:1_000])
             .replace("{system_context}", system_context or "No additional context provided.")
         )
@@ -1036,9 +1029,7 @@ def _make_generate_test_cases(ctx: ToolContext) -> StructuredTool:
             {"role": "user", "content": user_content},
         ]
         try:
-            result = await ctx.ai_client.complete_structured(
-                messages, _CaseList, max_tokens=4_096
-            )
+            result = await ctx.ai_client.complete_structured(messages, _CaseList, max_tokens=4_096)
             return result.model_dump_json()
         except Exception as exc:
             log.warning("generation.test_cases_failed", error=str(exc))
@@ -1266,9 +1257,9 @@ def _make_validate_script_syntax(ctx: ToolContext) -> StructuredTool:
         Returns JSON: {valid: bool, errors: [str]}.
         """
         import ast
+        import os
         import subprocess
         import tempfile
-        import os
 
         errors: list[str] = []
         fmt = format.lower().replace("-", "_").replace(" ", "_")
@@ -1288,9 +1279,10 @@ def _make_validate_script_syntax(ctx: ToolContext) -> StructuredTool:
                     f.write(script_content)
                     tmppath = f.name
                 result = subprocess.run(
-                    ["tsc", "--noEmit", "--target", "ES2020",
-                     "--lib", "ES2020,DOM", tmppath],
-                    capture_output=True, text=True, timeout=30,
+                    ["tsc", "--noEmit", "--target", "ES2020", "--lib", "ES2020,DOM", tmppath],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
                 os.unlink(tmppath)
                 if result.returncode != 0:
@@ -1445,9 +1437,7 @@ def _make_save_test_script(ctx: ToolContext) -> StructuredTool:
                         description=detail[:2_000],
                         expected_outcome=step_data.get("expected_result"),
                         parameters=(
-                            {"locator_hint": hint, "input_value": value}
-                            if hint or value
-                            else None
+                            {"locator_hint": hint, "input_value": value} if hint or value else None
                         ),
                     )
                     ctx.db.add(step)
@@ -1513,9 +1503,10 @@ def build_execution_tools(ctx: ToolContext) -> list[StructuredTool]:
 def _make_load_test_script(ctx: ToolContext) -> StructuredTool:
     async def load_test_script(script_id: str) -> str:
         """Load TestScript from DB with all test cases and steps. Returns JSON."""
-        from sqlalchemy.orm import selectinload
         from sqlalchemy import select as sa_select
-        from app.models.test_script import TestScript, TestCase, TestStep
+        from sqlalchemy.orm import selectinload
+
+        from app.models.test_script import TestCase, TestScript
 
         try:
             sid = UUID(script_id)
@@ -1525,9 +1516,7 @@ def _make_load_test_script(ctx: ToolContext) -> StructuredTool:
         stmt = (
             sa_select(TestScript)
             .where(TestScript.id == sid)
-            .options(
-                selectinload(TestScript.cases).selectinload(TestCase.steps)
-            )
+            .options(selectinload(TestScript.cases).selectinload(TestCase.steps))
         )
         result = await ctx.db.execute(stmt)
         script = result.scalar_one_or_none()
@@ -1582,8 +1571,8 @@ def _make_load_test_script(ctx: ToolContext) -> StructuredTool:
 def _make_create_execution_run(ctx: ToolContext) -> StructuredTool:
     async def create_execution_run(script_id: str) -> str:
         """Create an ExecutionRun record with status=RUNNING. Returns run_id."""
-        from app.models.execution_evidence import ExecutionRun
         from app.models.enums import ExecutionStatus
+        from app.models.execution_evidence import ExecutionRun
 
         try:
             sid = UUID(script_id)
@@ -1631,9 +1620,13 @@ def _make_browser_navigate(ctx: ToolContext) -> StructuredTool:
             response = await ctx.page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             status = response.status if response else 0
             title = await ctx.page.title()
-            return json.dumps({"success": True, "title": title, "status_code": status, "url": ctx.page.url})
+            return json.dumps(
+                {"success": True, "title": title, "status_code": status, "url": ctx.page.url}
+            )
         except Exception as exc:
-            return json.dumps({"success": False, "title": "", "status_code": 0, "error_message": str(exc)})
+            return json.dumps(
+                {"success": False, "title": "", "status_code": 0, "error_message": str(exc)}
+            )
 
     return StructuredTool.from_function(
         coroutine=browser_navigate,
@@ -1649,7 +1642,9 @@ def _make_browser_click(ctx: ToolContext) -> StructuredTool:
         Returns JSON: {success, element_found, error_message}.
         """
         if ctx.page is None:
-            return json.dumps({"success": False, "element_found": False, "error_message": "no browser"})
+            return json.dumps(
+                {"success": False, "element_found": False, "error_message": "no browser"}
+            )
 
         strategies = [
             ("css", locator),
@@ -1670,11 +1665,13 @@ def _make_browser_click(ctx: ToolContext) -> StructuredTool:
             except Exception:
                 continue
 
-        return json.dumps({
-            "success": False,
-            "element_found": False,
-            "error_message": f"Element not found with any strategy: {locator!r}",
-        })
+        return json.dumps(
+            {
+                "success": False,
+                "element_found": False,
+                "error_message": f"Element not found with any strategy: {locator!r}",
+            }
+        )
 
     return StructuredTool.from_function(
         coroutine=browser_click,
@@ -1732,7 +1729,9 @@ def _make_browser_assert_visible(ctx: ToolContext) -> StructuredTool:
             visible = await ctx.page.locator(locator).first.is_visible()
             if visible:
                 return json.dumps({"passed": True, "error_message": ""})
-            return json.dumps({"passed": False, "error_message": f"Element not visible: {locator!r}"})
+            return json.dumps(
+                {"passed": False, "error_message": f"Element not visible: {locator!r}"}
+            )
         except Exception as exc:
             return json.dumps({"passed": False, "error_message": str(exc)})
 
@@ -1752,11 +1751,15 @@ def _make_browser_assert_text(ctx: ToolContext) -> StructuredTool:
             el = ctx.page.locator(locator).first
             actual = await el.inner_text(timeout=10_000)
             passed = expected_text.lower() in actual.lower()
-            return json.dumps({
-                "passed": passed,
-                "actual_text": actual[:500],
-                "error_message": "" if passed else f"Expected {expected_text!r} not found in {actual[:200]!r}",
-            })
+            return json.dumps(
+                {
+                    "passed": passed,
+                    "actual_text": actual[:500],
+                    "error_message": ""
+                    if passed
+                    else f"Expected {expected_text!r} not found in {actual[:200]!r}",
+                }
+            )
         except Exception as exc:
             return json.dumps({"passed": False, "actual_text": "", "error_message": str(exc)})
 
@@ -1787,6 +1790,7 @@ def _make_browser_wait(ctx: ToolContext) -> StructuredTool:
     async def browser_wait(milliseconds: int) -> str:
         """Wait for specified time. Returns 'waited: Nms'."""
         import asyncio
+
         ms = max(0, min(milliseconds, 10_000))  # cap at 10 s
         await asyncio.sleep(ms / 1000)
         return f"waited: {ms}ms"
@@ -1832,7 +1836,7 @@ def _make_take_step_screenshot(ctx: ToolContext) -> StructuredTool:
         Returns blob URL (or empty string on failure).
         """
         from app.agents.screenshot_annotator import get_annotator
-        from app.blob import upload_bytes, build_evidence_path
+        from app.blob import build_evidence_path, upload_bytes
 
         run_id = ctx.memory.get("current_execution_run_id") or str(ctx.agent_run_id)
 
@@ -1846,8 +1850,10 @@ def _make_take_step_screenshot(ctx: ToolContext) -> StructuredTool:
 
         if not raw_bytes:
             # Produce a minimal 1×1 placeholder so we always have something
-            from PIL import Image as _PILImage
             import io as _io
+
+            from PIL import Image as _PILImage
+
             img = _PILImage.new("RGB", (1920, 1080), color=(200, 200, 200))
             buf = _io.BytesIO()
             img.save(buf, format="PNG")
@@ -1860,7 +1866,7 @@ def _make_take_step_screenshot(ctx: ToolContext) -> StructuredTool:
                 step_number=step_number,
                 description=step_description,
                 outcome=outcome,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
         except Exception as exc:
             log.warning("execution.annotation_failed", error=str(exc))
@@ -1956,8 +1962,9 @@ def _make_finalize_execution_run(ctx: ToolContext) -> StructuredTool:
     async def finalize_execution_run(execution_run_id: str) -> str:
         """Calculate totals, set status, set completed_at. Returns summary JSON."""
         from sqlalchemy import select as sa_select
-        from app.models.execution_evidence import ExecutionRun, ExecutionStepResult
+
         from app.models.enums import ExecutionStatus, StepOutcome
+        from app.models.execution_evidence import ExecutionRun, ExecutionStepResult
 
         try:
             run_uuid = UUID(execution_run_id)
@@ -1970,9 +1977,7 @@ def _make_finalize_execution_run(ctx: ToolContext) -> StructuredTool:
 
         # Count step results
         result = await ctx.db.execute(
-            sa_select(ExecutionStepResult).where(
-                ExecutionStepResult.execution_run_id == run_uuid
-            )
+            sa_select(ExecutionStepResult).where(ExecutionStepResult.execution_run_id == run_uuid)
         )
         steps = result.scalars().all()
         total = len(steps)
@@ -1981,9 +1986,7 @@ def _make_finalize_execution_run(ctx: ToolContext) -> StructuredTool:
         blocked = sum(1 for s in steps if s.outcome == StepOutcome.BLOCKED.value)
 
         # Determine overall status
-        if failed > 0 or total == 0:
-            status = ExecutionStatus.FAILED.value
-        elif blocked > 0:
+        if failed > 0 or total == 0 or blocked > 0:
             status = ExecutionStatus.FAILED.value
         else:
             status = ExecutionStatus.PASSED.value
@@ -1992,7 +1995,7 @@ def _make_finalize_execution_run(ctx: ToolContext) -> StructuredTool:
         run.total_steps = total
         run.passed_steps = passed
         run.failed_steps = failed
-        run.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        run.completed_at = datetime.now(UTC).replace(tzinfo=None)
         await ctx.db.flush()
 
         summary = {
@@ -2023,21 +2026,30 @@ def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
         Build a PDF evidence report with reportlab and upload to Blob.
         Returns PDF blob URL.
         """
+        import io as _io
+
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import cm
+        from reportlab.platypus import (
+            HRFlowable,
+            PageBreak,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+        from reportlab.platypus import (
+            Image as RLImage,
+        )
         from sqlalchemy import select as sa_select
-        from sqlalchemy.orm import selectinload
+
+        from app.blob import build_evidence_path, download_bytes, upload_bytes
         from app.models.execution_evidence import ExecutionRun, ExecutionStepResult
         from app.models.test_script import TestScript
-        from app.blob import upload_bytes, build_evidence_path, download_bytes
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import cm
-        from reportlab.lib import colors
-        from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-            Image as RLImage, PageBreak, HRFlowable,
-        )
-        from reportlab.lib.enums import TA_CENTER, TA_LEFT
-        import io as _io
 
         try:
             run_uuid = UUID(execution_run_id)
@@ -2077,15 +2089,33 @@ def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
         _PAGE_W = A4[0] - 4 * cm
 
         # Custom styles
-        h1 = ParagraphStyle("H1", parent=styles["Heading1"], fontSize=20, spaceAfter=6,
-                             textColor=colors.HexColor("#1e3a5f"), alignment=TA_CENTER)
-        h2 = ParagraphStyle("H2", parent=styles["Heading2"], fontSize=14, spaceAfter=4,
-                             textColor=colors.HexColor("#1e3a5f"))
+        h1 = ParagraphStyle(
+            "H1",
+            parent=styles["Heading1"],
+            fontSize=20,
+            spaceAfter=6,
+            textColor=colors.HexColor("#1e3a5f"),
+            alignment=TA_CENTER,
+        )
+        h2 = ParagraphStyle(
+            "H2",
+            parent=styles["Heading2"],
+            fontSize=14,
+            spaceAfter=4,
+            textColor=colors.HexColor("#1e3a5f"),
+        )
         body = ParagraphStyle("Body", parent=styles["Normal"], fontSize=10, spaceAfter=4)
-        label = ParagraphStyle("Label", parent=styles["Normal"], fontSize=9,
-                               textColor=colors.HexColor("#6b7280"))
-        mono = ParagraphStyle("Mono", parent=styles["Normal"], fontSize=9,
-                              fontName="Courier", spaceAfter=4, backColor=colors.HexColor("#f3f4f6"))
+        label = ParagraphStyle(
+            "Label", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#6b7280")
+        )
+        mono = ParagraphStyle(
+            "Mono",
+            parent=styles["Normal"],
+            fontSize=9,
+            fontName="Courier",
+            spaceAfter=4,
+            backColor=colors.HexColor("#f3f4f6"),
+        )
 
         def outcome_colour(o: str) -> colors.Color:
             mapping = {
@@ -2115,16 +2145,20 @@ def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
             ["Overall Outcome:", overall],
         ]
         cover_table = Table(cover_data, colWidths=[4 * cm, _PAGE_W - 4 * cm])
-        cover_table.setStyle(TableStyle([
-            ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-            ("FONTSIZE", (0, 0), (-1, -1), 11),
-            ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-            ("TEXTCOLOR", (1, 3), (1, 3), overall_c),
-            ("FONTNAME", (1, 3), (1, 3), "Helvetica-Bold"),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ]))
+        cover_table.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 11),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("TEXTCOLOR", (1, 3), (1, 3), overall_c),
+                    ("FONTNAME", (1, 3), (1, 3), "Helvetica-Bold"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]
+            )
+        )
         story.append(cover_table)
         story.append(Spacer(1, 1 * cm))
 
@@ -2140,22 +2174,26 @@ def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
             ],
         ]
         sum_table = Table(summary_data, colWidths=[_PAGE_W / 4] * 4)
-        sum_table.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a5f")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 11),
-            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("ROWBACKGROUNDS", (0, 1), (-1, 1), [colors.HexColor("#f9fafb")]),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
-            ("TOPPADDING", (0, 0), (-1, -1), 8),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ("TEXTCOLOR", (1, 1), (1, 1), colors.HexColor("#22c55e")),
-            ("TEXTCOLOR", (2, 1), (2, 1), colors.HexColor("#ef4444")),
-            ("TEXTCOLOR", (3, 1), (3, 1), colors.HexColor("#f97316")),
-            ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
-        ]))
+        sum_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a5f")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 11),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, 1), [colors.HexColor("#f9fafb")]),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#d1d5db")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+                    ("TEXTCOLOR", (1, 1), (1, 1), colors.HexColor("#22c55e")),
+                    ("TEXTCOLOR", (2, 1), (2, 1), colors.HexColor("#ef4444")),
+                    ("TEXTCOLOR", (3, 1), (3, 1), colors.HexColor("#f97316")),
+                    ("FONTNAME", (0, 1), (-1, 1), "Helvetica-Bold"),
+                ]
+            )
+        )
         story.append(sum_table)
         story.append(PageBreak())
 
@@ -2164,9 +2202,7 @@ def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
             oc = step.outcome
             oc_colour = outcome_colour(oc)
 
-            story.append(Paragraph(
-                f"Step {step.step_number:03d} — {step.step_description}", h2
-            ))
+            story.append(Paragraph(f"Step {step.step_number:03d} — {step.step_description}", h2))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e5e7eb")))
             story.append(Spacer(1, 0.2 * cm))
 
@@ -2178,29 +2214,37 @@ def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
                 ["Duration:", f"{step.duration_ms} ms"],
             ]
             meta_table = Table(meta, colWidths=[3 * cm, _PAGE_W - 3 * cm])
-            meta_table.setStyle(TableStyle([
-                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 10),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]))
+            meta_table.setStyle(
+                TableStyle(
+                    [
+                        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 10),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ]
+                )
+            )
             story.append(meta_table)
             story.append(Spacer(1, 0.3 * cm))
 
             # Outcome badge
             badge_data = [[f"  {oc.upper()}  "]]
             badge = Table(badge_data, colWidths=[3 * cm])
-            badge.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (0, 0), oc_colour),
-                ("TEXTCOLOR", (0, 0), (0, 0), colors.white),
-                ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (0, 0), 11),
-                ("ALIGN", (0, 0), (0, 0), "CENTER"),
-                ("TOPPADDING", (0, 0), (0, 0), 6),
-                ("BOTTOMPADDING", (0, 0), (0, 0), 6),
-                ("ROUNDEDCORNERS", [3, 3, 3, 3]),
-            ]))
+            badge.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (0, 0), oc_colour),
+                        ("TEXTCOLOR", (0, 0), (0, 0), colors.white),
+                        ("FONTNAME", (0, 0), (0, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (0, 0), 11),
+                        ("ALIGN", (0, 0), (0, 0), "CENTER"),
+                        ("TOPPADDING", (0, 0), (0, 0), 6),
+                        ("BOTTOMPADDING", (0, 0), (0, 0), 6),
+                        ("ROUNDEDCORNERS", [3, 3, 3, 3]),
+                    ]
+                )
+            )
             story.append(badge)
             story.append(Spacer(1, 0.4 * cm))
 
@@ -2221,6 +2265,7 @@ def _make_generate_evidence_report(ctx: ToolContext) -> StructuredTool:
                     img_stream = _io.BytesIO(img_bytes)
                     # Scale to fit page width
                     from PIL import Image as _PILImage
+
                     pil_img = _PILImage.open(_io.BytesIO(img_bytes))
                     orig_w, orig_h = pil_img.size
                     scale = min(_PAGE_W / orig_w, 18 * cm / orig_h)
@@ -2289,8 +2334,9 @@ def _make_create_test_result(ctx: ToolContext) -> StructuredTool:
         Create or update a TestResult linking this execution to a test cycle assignment.
         Returns result_id.
         """
-        from app.models.test_result import TestResult
         from sqlalchemy import select as sa_select
+
+        from app.models.test_result import TestResult
 
         try:
             assign_uuid = UUID(assignment_id)
@@ -2300,6 +2346,7 @@ def _make_create_test_result(ctx: ToolContext) -> StructuredTool:
 
         # Load the execution run to get test_script_id
         from app.models.execution_evidence import ExecutionRun
+
         run = await ctx.db.get(ExecutionRun, run_uuid)
         if run is None:
             return f"error: ExecutionRun {execution_run_id} not found"
@@ -2309,7 +2356,7 @@ def _make_create_test_result(ctx: ToolContext) -> StructuredTool:
             sa_select(TestResult).where(TestResult.assignment_id == assign_uuid)
         )
         test_result = existing.scalar_one_or_none()
-        now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
+        now_dt = datetime.now(UTC).replace(tzinfo=None)
 
         triggered_by_str = ctx.memory.get("triggered_by_user_id")
         user_uuid: Any = UUID(triggered_by_str) if triggered_by_str else ctx.agent_run_id

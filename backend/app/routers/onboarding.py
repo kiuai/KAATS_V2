@@ -13,10 +13,11 @@ Authenticated (any company member):
   GET   /api/v1/onboarding/status  — current company checklist
   PATCH /api/v1/onboarding/status  — mark step(s) complete
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -103,9 +104,7 @@ class OnboardingPatch(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-async def _get_or_create_onboarding(
-    db: AsyncSession, company_id: uuid.UUID
-) -> CompanyOnboarding:
+async def _get_or_create_onboarding(db: AsyncSession, company_id: uuid.UUID) -> CompanyOnboarding:
     result = await db.execute(
         select(CompanyOnboarding).where(CompanyOnboarding.company_id == company_id)
     )
@@ -119,7 +118,7 @@ async def _get_or_create_onboarding(
 
 def _check_and_complete(ob: CompanyOnboarding) -> None:
     if ob.is_complete and ob.completed_at is None:
-        ob.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        ob.completed_at = datetime.now(UTC).replace(tzinfo=None)
 
 
 # ── Invitations — public ───────────────────────────────────────────────────────
@@ -135,21 +134,17 @@ async def get_invitation_public(
     token: str,
     db: AsyncSession = Depends(get_db),
 ) -> InvitePublic:
-    result = await db.execute(
-        select(InvitationToken)
-        .where(InvitationToken.token == token)
-    )
+    result = await db.execute(select(InvitationToken).where(InvitationToken.token == token))
     inv = result.scalar_one_or_none()
     if inv is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found")
 
     now = datetime.utcnow()
-    is_valid = (
-        inv.status == InvitationStatus.PENDING.value and inv.expires_at > now
-    )
+    is_valid = inv.status == InvitationStatus.PENDING.value and inv.expires_at > now
 
     # Load company name
     from app.models.tenant import Company
+
     company = await db.get(Company, inv.company_id)
     company_name = company.name if company else "Unknown"
 
@@ -173,25 +168,19 @@ async def accept_invitation(
     body: AcceptInviteBody,
     db: AsyncSession = Depends(get_db),
 ) -> AcceptInviteResult:
-    result = await db.execute(
-        select(InvitationToken).where(InvitationToken.token == token)
-    )
+    result = await db.execute(select(InvitationToken).where(InvitationToken.token == token))
     inv = result.scalar_one_or_none()
 
     now = datetime.utcnow()
-    if (
-        inv is None
-        or inv.status != InvitationStatus.PENDING.value
-        or inv.expires_at <= now
-    ):
+    if inv is None or inv.status != InvitationStatus.PENDING.value or inv.expires_at <= now:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
             detail="Invitation is invalid, expired, or already used.",
         )
 
     # Import here to avoid circular at module level
-    from app.models.user import User
     from app.models.role import UserRole
+    from app.models.user import User
 
     # Upsert user — they may have an Azure AD account without a KAATS row yet
     user_result = await db.execute(select(User).where(User.email == inv.email))

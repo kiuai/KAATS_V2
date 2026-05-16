@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     azure_storage_container_evidence: str = "kaats-evidence"
 
     @model_validator(mode="after")
-    def _parse_storage_conn_str(self) -> "Settings":
+    def _parse_storage_conn_str(self) -> Settings:
         """If only a full connection string is provided, extract name and key."""
         raw = self.azure_storage_conn_str
         if raw and not self.azure_storage_account_name:

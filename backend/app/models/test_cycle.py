@@ -18,9 +18,7 @@ if TYPE_CHECKING:
 
 class TestCycle(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     __tablename__ = "test_cycles"
-    __table_args__ = (
-        Index("ix_test_cycles_company_created", "company_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_test_cycles_company_created", "company_id", "created_at"),)
 
     system_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("systems.id"), nullable=False, index=True
@@ -44,9 +42,11 @@ class TestCycle(Base, UUIDPrimaryKeyMixin, TimestampMixin):
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("users.id")
     )
 
-    assignments: Mapped[list["TestAssignment"]] = relationship("TestAssignment", back_populates="cycle")
-    lead_user: Mapped["User | None"] = relationship("User", foreign_keys=[lead_user_id])
-    creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
+    assignments: Mapped[list[TestAssignment]] = relationship(
+        "TestAssignment", back_populates="cycle"
+    )
+    lead_user: Mapped[User | None] = relationship("User", foreign_keys=[lead_user_id])
+    creator: Mapped[User | None] = relationship("User", foreign_keys=[created_by])
 
 
 class TestAssignment(Base, UUIDPrimaryKeyMixin):
@@ -72,20 +72,19 @@ class TestAssignment(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=False), server_default="GETUTCDATE()", nullable=False
     )
 
-    cycle: Mapped["TestCycle"] = relationship("TestCycle", back_populates="assignments")
-    test_script: Mapped["TestScript"] = relationship("TestScript")
-    assignee: Mapped["User"] = relationship("User", foreign_keys=[assigned_to])
-    assigner: Mapped["User"] = relationship("User", foreign_keys=[assigned_by])
-    results: Mapped[list["TestResult"]] = relationship("TestResult", back_populates="assignment")
+    cycle: Mapped[TestCycle] = relationship("TestCycle", back_populates="assignments")
+    test_script: Mapped[TestScript] = relationship("TestScript")
+    assignee: Mapped[User] = relationship("User", foreign_keys=[assigned_to])
+    assigner: Mapped[User] = relationship("User", foreign_keys=[assigned_by])
+    results: Mapped[list[TestResult]] = relationship("TestResult", back_populates="assignment")
 
 
 # Keep for backward compat with existing router/service until full refactor
 class TestExecution(Base, UUIDPrimaryKeyMixin):
     """Legacy model — superseded by TestCycle/TestAssignment/ExecutionRun."""
+
     __tablename__ = "test_executions"
-    __table_args__ = (
-        Index("ix_test_executions_company_id", "company_id"),
-    )
+    __table_args__ = (Index("ix_test_executions_company_id", "company_id"),)
 
     script_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_scripts.id"), nullable=False, index=True
@@ -107,7 +106,7 @@ class TestExecution(Base, UUIDPrimaryKeyMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     duration_ms: Mapped[int | None] = mapped_column()
 
-    script: Mapped["TestScript"] = relationship("TestScript")
+    script: Mapped[TestScript] = relationship("TestScript")
 
 
 # Import TestResult here for the FK relationship on TestAssignment

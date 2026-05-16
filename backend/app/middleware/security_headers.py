@@ -13,6 +13,7 @@ The ``Content-Security-Policy`` is intentionally omitted here because it is
 already managed by the frontend (Vite build / Azure CDN response headers rule)
 and a backend-set CSP would conflict.
 """
+
 from __future__ import annotations
 
 from starlette.middleware.base import BaseHTTPMiddleware

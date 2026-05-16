@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
 
 import structlog
 from langchain.agents import AgentExecutor, create_tool_calling_agent
@@ -47,7 +46,7 @@ class LoggingCallbackHandler(AsyncCallbackHandler):
     in WorkingMemory so BaseAgent.execute() can persist the totals.
     """
 
-    def __init__(self, agent: "BaseAgent") -> None:
+    def __init__(self, agent: BaseAgent) -> None:
         super().__init__()
         self._agent = agent
         self._tool_start_times: dict[str, float] = {}
@@ -80,7 +79,9 @@ class LoggingCallbackHandler(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         key = str(run_id or "")
-        duration_ms = int((time.monotonic() - self._tool_start_times.pop(key, time.monotonic())) * 1000)
+        duration_ms = int(
+            (time.monotonic() - self._tool_start_times.pop(key, time.monotonic())) * 1000
+        )
         tool_name = self._tool_names.pop(key, "unknown")
         tool_input = self._tool_inputs.pop(key, "")
         await self._agent._record_tool_call(
@@ -99,7 +100,9 @@ class LoggingCallbackHandler(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         key = str(run_id or "")
-        duration_ms = int((time.monotonic() - self._tool_start_times.pop(key, time.monotonic())) * 1000)
+        duration_ms = int(
+            (time.monotonic() - self._tool_start_times.pop(key, time.monotonic())) * 1000
+        )
         tool_name = self._tool_names.pop(key, "unknown")
         tool_input = self._tool_inputs.pop(key, "")
         await self._agent._record_tool_call(
@@ -200,7 +203,7 @@ class BaseAgent(ABC):
         6. Return the updated AgentRun record
         """
         settings = get_settings()
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
 
         # 1. Transition to RUNNING
         self.run.status = AgentRunStatus.RUNNING.value
@@ -237,7 +240,7 @@ class BaseAgent(ABC):
                 run_id=str(self.run.id),
                 summary=result.output_summary,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning("agent.execute.timeout", run_id=str(self.run.id))
             self.run.status = "timed_out"
             self.run.error_message = "Wall-clock timeout exceeded"
@@ -247,7 +250,7 @@ class BaseAgent(ABC):
             self.run.error_message = str(exc)[:1000]
 
         # 7. Persist token counts, cost, timestamps
-        self.run.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        self.run.completed_at = datetime.now(UTC).replace(tzinfo=None)
         self.run.prompt_tokens = self.memory.get("prompt_tokens", 0)
         self.run.completion_tokens = self.memory.get("completion_tokens", 0)
         self.run.total_cost_usd = (
@@ -287,7 +290,7 @@ class BaseAgent(ABC):
             tool_output=tool_output,
             duration_ms=duration_ms,
             success=success,
-            called_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            called_at=datetime.now(UTC).replace(tzinfo=None),
         )
         self.db.add(tool_call)
         try:
@@ -302,7 +305,7 @@ class BaseAgent(ABC):
             return
         from app.models.scheduled_job import ScheduledJob, ScheduledJobRun
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         result = await self.db.execute(
             select(ScheduledJobRun).where(ScheduledJobRun.agent_run_id == self.run.id)
         )
@@ -313,7 +316,9 @@ class BaseAgent(ABC):
 
         job = await self.db.get(ScheduledJob, self.run.scheduled_job_id)
         if job:
-            job.last_run_status = "success" if status == AgentRunStatus.COMPLETED.value else "failed"
+            job.last_run_status = (
+                "success" if status == AgentRunStatus.COMPLETED.value else "failed"
+            )
 
         try:
             await self.db.flush()
@@ -325,9 +330,7 @@ class BaseAgent(ABC):
     async def _upsert_token_usage(self) -> None:
         from app.models.agent_run import CompanyTokenUsage
 
-        today = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0, tzinfo=None
-        )
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
         result = await self.db.execute(
             select(CompanyTokenUsage).where(
                 CompanyTokenUsage.company_id == self.run.company_id,
@@ -399,7 +402,7 @@ class BaseAgent(ABC):
             "system_id": str(self.run.system_id) if self.run.system_id else None,
             "agent_type": self.agent_type,
             "status": AgentRunStatus.RUNNING.value,
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": datetime.now(UTC).isoformat(),
             "steps": [],
             "_partitionKey": str(self.run.company_id),
         }
@@ -430,7 +433,7 @@ class BaseAgent(ABC):
                 self._cosmos_doc_id, partition_key=str(self.run.company_id)
             )
             doc["status"] = final_status
-            doc["completed_at"] = datetime.now(timezone.utc).isoformat()
+            doc["completed_at"] = datetime.now(UTC).isoformat()
             doc["prompt_tokens"] = self.run.prompt_tokens
             doc["completion_tokens"] = self.run.completion_tokens
             doc["output_summary"] = self.run.output_summary
@@ -454,11 +457,13 @@ class BaseAgent(ABC):
             api_version="2024-10-01-preview",
             temperature=0,
         )
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("human", "{input}"),
-            MessagesPlaceholder("agent_scratchpad"),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt),
+                ("human", "{input}"),
+                MessagesPlaceholder("agent_scratchpad"),
+            ]
+        )
         agent = create_tool_calling_agent(llm, tools, prompt)
         return AgentExecutor(
             agent=agent,

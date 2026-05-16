@@ -1,10 +1,11 @@
 """Audit log — immutable append-only record of security-relevant actions."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, JSON, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column
 

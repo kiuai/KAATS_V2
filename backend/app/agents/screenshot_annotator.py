@@ -1,25 +1,26 @@
 """Annotate Playwright screenshots with step metadata using Pillow."""
+
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
 
 from PIL import Image, ImageDraw, ImageFont
 
 # ── Outcome colours ───────────────────────────────────────────────────────────
 _OUTCOME_COLOURS: dict[str, tuple[int, int, int]] = {
-    "passed": (34, 197, 94),    # green-500
-    "failed": (239, 68, 68),    # red-500
+    "passed": (34, 197, 94),  # green-500
+    "failed": (239, 68, 68),  # red-500
     "blocked": (249, 115, 22),  # orange-500
     "error": (239, 68, 68),
-    "skipped": (148, 163, 184), # slate-400
+    "skipped": (148, 163, 184),  # slate-400
 }
 _DARK_GREY: Final = (30, 30, 30)
 _WHITE: Final = (255, 255, 255)
-_BANNER_HEIGHT: Final = 48   # px
-_BORDER_PX: Final = 4        # px
-_ALPHA: Final = 210          # 0-255 overlay transparency
+_BANNER_HEIGHT: Final = 48  # px
+_BORDER_PX: Final = 4  # px
+_ALPHA: Final = 210  # 0-255 overlay transparency
 
 
 def _colour(outcome: str) -> tuple[int, int, int]:
@@ -37,7 +38,7 @@ def _load_font(size: int) -> ImageFont.ImageFont:
     for path in candidates:
         try:
             return ImageFont.truetype(path, size)
-        except (OSError, IOError):
+        except OSError:
             continue
     # PIL default bitmap font — no size parameter
     return ImageFont.load_default()
@@ -73,7 +74,7 @@ class ScreenshotAnnotator:
         timestamp:    Capture time (defaults to now UTC).
         """
         if timestamp is None:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
 
         ts_str = timestamp.strftime("%Y-%m-%d %H:%M:%S UTC")
         colour = _colour(outcome)

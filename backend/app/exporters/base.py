@@ -1,6 +1,7 @@
 """
 Base types and abstract exporter for the KAATS multi-format export engine.
 """
+
 from __future__ import annotations
 
 import re
@@ -8,10 +9,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 
-
 # ---------------------------------------------------------------------------
 # Export-time domain types (distinct from ORM models)
 # ---------------------------------------------------------------------------
+
 
 class StepType(str, Enum):
     NAVIGATE = "NAVIGATE"
@@ -26,9 +27,9 @@ class StepType(str, Enum):
 @dataclass
 class TestStep:
     number: int
-    action: str           # Business-language action description
-    locator_hint: str     # CSS selector, XPath, or element description
-    input_value: str      # Data to enter (empty string if not applicable)
+    action: str  # Business-language action description
+    locator_hint: str  # CSS selector, XPath, or element description
+    input_value: str  # Data to enter (empty string if not applicable)
     expected_result: str
     step_type: StepType
 
@@ -41,7 +42,7 @@ class TestCase:
     preconditions: list[str] = field(default_factory=list)
     steps: list[TestStep] = field(default_factory=list)
     expected_outcome: str = ""
-    test_type: str = "positive"   # positive | negative | boundary | integration
+    test_type: str = "positive"  # positive | negative | boundary | integration
     priority: str = "medium"
 
 
@@ -49,7 +50,7 @@ class TestCase:
 class ExportContext:
     system_name: str
     base_url: str
-    export_format: "ExportFormatEnum"
+    export_format: ExportFormatEnum
     include_comments: bool = True
 
 
@@ -65,6 +66,7 @@ class ExportFormatEnum(str, Enum):
 # ---------------------------------------------------------------------------
 # Abstract base exporter
 # ---------------------------------------------------------------------------
+
 
 class BaseExporter(ABC):
     """Abstract base for all format exporters."""
@@ -98,12 +100,13 @@ class BaseExporter(ABC):
 # Factory
 # ---------------------------------------------------------------------------
 
+
 def get_exporter(fmt: str) -> BaseExporter:
+    from app.exporters.gherkin_exporter import GherkinExporter
     from app.exporters.playwright_exporter import PlaywrightExporter
-    from app.exporters.selenium_exporter import SeleniumExporter
     from app.exporters.pytest_exporter import PytestExporter
     from app.exporters.robot_framework_exporter import RobotFrameworkExporter
-    from app.exporters.gherkin_exporter import GherkinExporter
+    from app.exporters.selenium_exporter import SeleniumExporter
 
     mapping: dict[str, type[BaseExporter]] = {
         ExportFormatEnum.PLAYWRIGHT.value: PlaywrightExporter,

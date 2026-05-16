@@ -14,7 +14,7 @@ class WebCrawler(BaseCrawler):
         self._page: Page | None = None
         self._pw = None
 
-    async def __aenter__(self) -> "WebCrawler":
+    async def __aenter__(self) -> WebCrawler:
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(headless=True)
         context = await self._browser.new_context(viewport={"width": 1920, "height": 1080})
@@ -33,8 +33,7 @@ class WebCrawler(BaseCrawler):
         text = await self._page.inner_text("body")
         origin = self._origin()
         links = await self._page.eval_on_selector_all(
-            "a[href]",
-            f"els => els.map(e => e.href).filter(h => h.startsWith('{origin}'))"
+            "a[href]", f"els => els.map(e => e.href).filter(h => h.startsWith('{origin}'))"
         )
         elements = await self._page.query_selector_all("button, input, a, select, textarea")
         interactive = []

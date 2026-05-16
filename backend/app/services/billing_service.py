@@ -9,6 +9,7 @@ Wraps the Stripe Python SDK for:
 All Stripe calls are conditional on stripe_secret_key being set; if absent, methods
 return None so the app stays functional without billing configured.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -27,6 +28,7 @@ except ImportError:  # pragma: no cover
 
 def _get_stripe():  # type: ignore[return]
     from app.config import get_settings
+
     settings = get_settings()
     if _stripe_module is None:
         raise RuntimeError("stripe package not installed")
@@ -52,9 +54,7 @@ class BillingService:
         if stripe is None:
             return None
         try:
-            existing = stripe.Customer.search(
-                query=f'metadata["company_id"]:"{company_id}"'
-            )
+            existing = stripe.Customer.search(query=f'metadata["company_id"]:"{company_id}"')
             if existing.data:
                 return existing.data[0].id
             customer = stripe.Customer.create(
@@ -64,7 +64,9 @@ class BillingService:
             )
             return customer.id
         except Exception as exc:  # noqa: BLE001
-            log.exception("billing.customer.create_failed", company_id=str(company_id), error=str(exc))
+            log.exception(
+                "billing.customer.create_failed", company_id=str(company_id), error=str(exc)
+            )
             return None
 
     # ── Checkout ──────────────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ class BillingService:
         if stripe is None:
             return None
         from app.config import get_settings
+
         settings = get_settings()
 
         price_id = (
@@ -149,6 +152,7 @@ class BillingService:
         if stripe is None:
             return None
         from app.config import get_settings
+
         secret = get_settings().stripe_webhook_secret
         if not secret:
             return None

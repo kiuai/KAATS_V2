@@ -16,7 +16,6 @@ from app.auth.permissions import (
 )
 from app.dependencies import get_current_company_id, get_db
 from app.middleware.rate_limit import limiter
-from app.models.enums import AgentRunStatus
 from app.schemas.agent_run import AgentRunRead, AgentRunWithToolCalls
 from app.services.agent_dispatcher import AgentDispatcher
 from app.services.agent_run_service import AgentRunService
@@ -163,7 +162,13 @@ async def trigger_execution(
         company_id=company_id,
         resource_type="agent_run",
         resource_id=str(run.id),
-        changes={"after": {"agent_type": "execute", "system_id": str(system_id), "script_id": str(body.script_id)}},
+        changes={
+            "after": {
+                "agent_type": "execute",
+                "system_id": str(system_id),
+                "script_id": str(body.script_id),
+            }
+        },
         request=request,
     )
     return AgentRunRead.model_validate(run)

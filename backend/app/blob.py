@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
-from azure.storage.blob.aio import BlobServiceClient, ContainerClient
 from azure.storage.blob import BlobSasPermissions, generate_blob_sas
+from azure.storage.blob.aio import BlobServiceClient, ContainerClient
 
 from app.config import get_settings
 
@@ -56,7 +56,7 @@ def build_evidence_path(company_id: str, execution_id: str, filename: str) -> st
 def generate_sas_url(blob_path: str, ttl_hours: int | None = None) -> str:
     settings = get_settings()
     hours = ttl_hours or settings.evidence_sas_ttl_hours
-    expiry = datetime.now(timezone.utc) + timedelta(hours=hours)
+    expiry = datetime.now(UTC) + timedelta(hours=hours)
 
     sas_token = generate_blob_sas(
         account_name=settings.azure_storage_account_name,
@@ -71,10 +71,14 @@ def generate_sas_url(blob_path: str, ttl_hours: int | None = None) -> str:
     return f"https://{account}.blob.core.windows.net/{container}/{blob_path}?{sas_token}"
 
 
-async def upload_bytes(blob_path: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+async def upload_bytes(
+    blob_path: str, data: bytes, content_type: str = "application/octet-stream"
+) -> None:
     container = get_evidence_container()
     blob_client = container.get_blob_client(blob_path)
-    await blob_client.upload_blob(data, overwrite=True, content_settings={"content_type": content_type})
+    await blob_client.upload_blob(
+        data, overwrite=True, content_settings={"content_type": content_type}
+    )
 
 
 async def download_bytes(blob_path: str) -> bytes:

@@ -1,14 +1,15 @@
 """Robot Framework exporter — generates .robot files with SeleniumLibrary."""
+
 from __future__ import annotations
 
 import re
 
 from app.exporters.base import BaseExporter, ExportContext, StepType, TestCase, TestStep
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _rf_loc(hint: str) -> str:
     """Convert a locator hint to Robot Framework SeleniumLibrary locator."""
@@ -70,6 +71,7 @@ def _step_to_rf(step: TestStep, indent: str = "    ") -> list[str]:
 # Exporter
 # ---------------------------------------------------------------------------
 
+
 class RobotFrameworkExporter(BaseExporter):
     """Generates Robot Framework .robot files with SeleniumLibrary."""
 
@@ -82,7 +84,6 @@ class RobotFrameworkExporter(BaseExporter):
 
     def export(self, test_cases: list[TestCase], context: ExportContext | None = None) -> str:
         base_url = (context.base_url if context else "") or "http://localhost:3000"
-        system_name = context.system_name if context else "System Under Test"
         browser = "Chrome"
 
         lines: list[str] = [

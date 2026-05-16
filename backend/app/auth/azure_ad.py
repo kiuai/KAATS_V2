@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -41,9 +41,7 @@ def get_msal_app() -> ConfidentialClientApplication:
 
 def get_token_url() -> str:
     settings = get_settings()
-    return (
-        f"https://login.microsoftonline.com/{settings.azure_tenant_id}/oauth2/v2.0/authorize"
-    )
+    return f"https://login.microsoftonline.com/{settings.azure_tenant_id}/oauth2/v2.0/authorize"
 
 
 async def exchange_code_for_token(code: str, redirect_uri: str) -> dict[str, Any]:
@@ -86,10 +84,7 @@ class AzureADTokenValidator:
             return self._jwks
 
         settings = get_settings()
-        url = (
-            f"https://login.microsoftonline.com"
-            f"/{settings.azure_tenant_id}/discovery/v2.0/keys"
-        )
+        url = f"https://login.microsoftonline.com/{settings.azure_tenant_id}/discovery/v2.0/keys"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url)
             resp.raise_for_status()
@@ -144,9 +139,7 @@ class AzureADTokenValidator:
                     headers={"WWW-Authenticate": "Bearer"},
                 )
 
-            issuer = (
-                f"https://login.microsoftonline.com/{settings.azure_tenant_id}/v2.0"
-            )
+            issuer = f"https://login.microsoftonline.com/{settings.azure_tenant_id}/v2.0"
             audience = f"api://{settings.azure_client_id}"
 
             claims = jwt.decode(
@@ -168,9 +161,7 @@ class AzureADTokenValidator:
         return claims
 
     @staticmethod
-    def _find_key(
-        jwks: dict[str, Any], kid: str | None
-    ) -> dict[str, Any] | None:
+    def _find_key(jwks: dict[str, Any], kid: str | None) -> dict[str, Any] | None:
         for key in jwks.get("keys", []):
             if key.get("kid") == kid:
                 return key
@@ -210,7 +201,7 @@ def _extract_bearer_token(request: Request) -> str:
             detail="Missing or invalid Authorization header",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return auth_header[len("Bearer "):]
+    return auth_header[len("Bearer ") :]
 
 
 async def get_current_user(request: Request) -> CurrentUser:
@@ -224,12 +215,7 @@ async def get_current_user(request: Request) -> CurrentUser:
 
     # Prefer 'oid' (stable Entra object ID); fall back to 'sub' for dev tokens.
     azure_oid: str = claims.get("oid") or claims.get("sub", "")
-    email: str = (
-        claims.get("preferred_username")
-        or claims.get("email")
-        or claims.get("upn")
-        or ""
-    )
+    email: str = claims.get("preferred_username") or claims.get("email") or claims.get("upn") or ""
     display_name: str | None = claims.get("name")
 
     if not azure_oid and not email:
@@ -248,12 +234,12 @@ async def get_current_user(request: Request) -> CurrentUser:
             await session.rollback()
             raise
 
-    accessible_company_ids: list[UUID] = list({
-        r.company_id for r in roles if r.company_id is not None
-    })
-    accessible_system_ids: list[UUID] = list({
-        r.system_id for r in roles if r.system_id is not None
-    })
+    accessible_company_ids: list[UUID] = list(
+        {r.company_id for r in roles if r.company_id is not None}
+    )
+    accessible_system_ids: list[UUID] = list(
+        {r.system_id for r in roles if r.system_id is not None}
+    )
 
     return CurrentUser(
         user=user,
@@ -354,7 +340,7 @@ async def _get_or_create_user(
         result = await session.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
 
     if user is None:
         user = User(
@@ -385,7 +371,7 @@ async def _get_or_create_user(
 
 async def _load_user_roles(session: AsyncSession, user_id: UUID) -> list[UserRole]:
     """Return all non-expired UserRole records for a user."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     result = await session.execute(
         select(UserRole).where(
             UserRole.user_id == user_id,

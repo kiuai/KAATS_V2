@@ -1,9 +1,10 @@
 """
 Test script service — CRUD, status transitions, versioning, and export delegation.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
@@ -12,9 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.test_script import TestScript, TestScriptVersion, TestCase, TestStep
+from app.models.test_script import TestCase, TestScript, TestScriptVersion, TestStep
 from app.schemas.test_script import (
-    TestCaseRead,
     TestScriptCreate,
     TestScriptRead,
     TestScriptUpdate,
@@ -56,7 +56,6 @@ class TestScriptService:
         bpo_domain: when set, restricts results to scripts in that business_domain
                     (populated by router when caller has BPO role).
         """
-        from sqlalchemy import or_, ilike_op
 
         q = (
             select(TestScript)
@@ -171,9 +170,7 @@ class TestScriptService:
             created_by=updated_by,
         )
 
-        for field, value in body.model_dump(
-            exclude_none=True, exclude={"change_summary"}
-        ).items():
+        for field, value in body.model_dump(exclude_none=True, exclude={"change_summary"}).items():
             setattr(script, field, value)
 
         script.version = (script.version or 1) + 1
@@ -193,7 +190,7 @@ class TestScriptService:
     async def soft_delete(self, script_id: UUID) -> None:
         """Soft delete — sets deleted_at."""
         script = await self._load(script_id)
-        script.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        script.deleted_at = datetime.now(UTC).replace(tzinfo=None)
         await self._db.flush()
 
     # ── Status transitions ────────────────────────────────────────────────────
@@ -226,7 +223,7 @@ class TestScriptService:
             )
         script.status = TestScriptStatus.APPROVED.value
         script.approved_by = approver_id
-        script.approved_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        script.approved_at = datetime.now(UTC).replace(tzinfo=None)
         await self._db.flush()
         log.info("script.approved", script_id=str(script_id), approver_id=str(approver_id))
         return TestScriptRead.model_validate(script)
@@ -300,6 +297,7 @@ class TestScriptService:
         exporter = get_exporter(fmt)
         # Minimal export without full context
         from app.exporters.base import ExportContext, ExportFormatEnum
+
         ctx = ExportContext(
             system_name="System",
             base_url="",

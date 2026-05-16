@@ -1,14 +1,15 @@
 """Pure pytest + httpx exporter — API-focused, no browser."""
+
 from __future__ import annotations
 
 import re
 
 from app.exporters.base import BaseExporter, ExportContext, StepType, TestCase
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _safe_name(text: str) -> str:
     return re.sub(r"[^\w]", "_", text.lower().strip())[:60]
@@ -22,6 +23,7 @@ def _py_str(s: str) -> str:
 # Exporter
 # ---------------------------------------------------------------------------
 
+
 class PytestExporter(BaseExporter):
     """Generates pure pytest + httpx API tests (.py)."""
 
@@ -34,7 +36,6 @@ class PytestExporter(BaseExporter):
 
     def export(self, test_cases: list[TestCase], context: ExportContext | None = None) -> str:
         base_url = (context.base_url if context else "") or "http://localhost:8000"
-        system_name = context.system_name if context else "API"
 
         lines: list[str] = [
             "import pytest",
@@ -82,6 +83,7 @@ class PytestExporter(BaseExporter):
                     # Strip full URL to path
                     if path.startswith("http"):
                         from urllib.parse import urlparse
+
                         try:
                             path = urlparse(path).path or "/"
                         except Exception:
@@ -89,16 +91,18 @@ class PytestExporter(BaseExporter):
                     resp_var = f"response_{step.number}"
                     last_response_var = resp_var
                     lines += [
-                        f"    # Act",
+                        "    # Act",
                         f'    {resp_var} = client.get("{_py_str(path)}", headers=headers)',
                         f"    assert {resp_var}.status_code == 200, (",
                         f'        f"Expected 200, got {{{resp_var}.status_code}}: {{{resp_var}.text}}"',
-                        f"    )",
+                        "    )",
                     ]
 
                 elif step.step_type == StepType.INPUT:
                     field_name = _safe_name(step.action) or f"field_{step.number}"
-                    lines.append(f'    payload["{_py_str(field_name)}"] = "{_py_str(step.input_value)}"')
+                    lines.append(
+                        f'    payload["{_py_str(field_name)}"] = "{_py_str(step.input_value)}"'
+                    )
 
                 elif step.step_type == StepType.CLICK:
                     # Treat click as a POST to the locator path
@@ -110,7 +114,7 @@ class PytestExporter(BaseExporter):
                         f'    {resp_var} = client.post("{_py_str(path)}", json=payload, headers=headers)',
                         f"    assert {resp_var}.status_code in (200, 201, 204), (",
                         f'        f"Expected success, got {{{resp_var}.status_code}}: {{{resp_var}.text}}"',
-                        f"    )",
+                        "    )",
                     ]
 
                 elif step.step_type == StepType.ASSERT:
@@ -126,10 +130,12 @@ class PytestExporter(BaseExporter):
                             lines += [
                                 f'    assert "{_py_str(key)}" in str(data), (',
                                 f'        f"Expected to find \\"{_py_str(key)}\\" in response: {{data}}"',
-                                f"    )",
+                                "    )",
                             ]
                         else:
-                            lines.append(f'    assert data is not None, "Response body should not be empty"')
+                            lines.append(
+                                '    assert data is not None, "Response body should not be empty"'
+                            )
 
                 elif step.step_type in (StepType.WAIT, StepType.SCREENSHOT):
                     lines.append(f"    pass  # {step.step_type.value}: {step.action}")

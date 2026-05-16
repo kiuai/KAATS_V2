@@ -1,14 +1,15 @@
 """Playwright TypeScript exporter — generates @playwright/test .ts files."""
+
 from __future__ import annotations
 
 import re
 
 from app.exporters.base import BaseExporter, ExportContext, StepType, TestCase, TestStep
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _safe_id(text: str) -> str:
     return re.sub(r"[^\w]", "_", text.lower().strip())[:60]
@@ -92,6 +93,7 @@ def _step_to_ts(step: TestStep, indent: str = "    ") -> list[str]:
 # ---------------------------------------------------------------------------
 # Exporter
 # ---------------------------------------------------------------------------
+
 
 class PlaywrightExporter(BaseExporter):
     """Generates Playwright TypeScript test files (.ts)."""

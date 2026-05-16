@@ -14,9 +14,10 @@ from app.blob import get_blob_service
 from app.models.enums import AgentType
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.auth.azure_ad import CurrentUser
     from app.models.agent_run import AgentRun
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger(__name__)
 
@@ -42,9 +43,9 @@ class ExecutionAgent(BaseAgent):
 
     def __init__(
         self,
-        run: "AgentRun",
-        db: "AsyncSession",
-        current_user: "CurrentUser | None",
+        run: AgentRun,
+        db: AsyncSession,
+        current_user: CurrentUser | None,
         config: dict[str, Any],
     ) -> None:
         super().__init__(run, db, current_user, config)
@@ -62,11 +63,7 @@ class ExecutionAgent(BaseAgent):
         Return shared + Playwright execution tools.
         Called after the browser is already started in execute().
         """
-        triggered_by = (
-            str(self.run.triggered_by_user_id)
-            if self.run.triggered_by_user_id
-            else None
-        )
+        triggered_by = str(self.run.triggered_by_user_id) if self.run.triggered_by_user_id else None
         self.memory.set("triggered_by_user_id", triggered_by)
 
         try:
@@ -150,7 +147,7 @@ class ExecutionAgent(BaseAgent):
 
     # ── execute() override — Playwright lifecycle ─────────────────────────────
 
-    async def execute(self) -> "AgentRun":
+    async def execute(self) -> AgentRun:
         """Start a dedicated Playwright browser, run the agent, then shut it down."""
         await self._start_playwright()
         try:
@@ -195,10 +192,7 @@ class ExecutionAgent(BaseAgent):
     @staticmethod
     def _build_input_prompt(script_ids: list[str], base_url: str) -> str:
         if not script_ids:
-            return (
-                "No script IDs were provided. "
-                "Nothing to execute — return a summary with 0 runs."
-            )
+            return "No script IDs were provided. Nothing to execute — return a summary with 0 runs."
 
         ids_block = "\n".join(f"  - {sid}" for sid in script_ids)
         lines = [
@@ -231,7 +225,6 @@ class ExecutionAgent(BaseAgent):
         """Read DB step totals from finalised ExecutionRun records."""
         if not run_ids:
             return 0, 0
-        from sqlalchemy import select as sa_select
         from app.models.execution_evidence import ExecutionRun
 
         total_passed = 0

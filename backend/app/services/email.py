@@ -17,6 +17,7 @@ Usage::
 The service degrades gracefully when ACS is not configured (dev/local):
 it logs the email body instead of sending.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -37,7 +38,7 @@ except ModuleNotFoundError:  # pragma: no cover
 class EmailService:
     def __init__(self, connection_string: str | None, sender: str | None) -> None:
         self._sender = sender or "noreply@kaats.kiu.ai"
-        self._client: "_AcsEmailClient | None" = None
+        self._client: _AcsEmailClient | None = None
 
         if connection_string and _ACS_AVAILABLE:
             try:
@@ -77,9 +78,7 @@ class EmailService:
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    async def _send(
-        self, *, to: str, subject: str, html: str, plain: str
-    ) -> None:
+    async def _send(self, *, to: str, subject: str, html: str, plain: str) -> None:
         if self._client is None:
             # Dev fallback — log instead of send
             log.info(

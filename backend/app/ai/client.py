@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
 from typing import Any, TypeVar
@@ -27,8 +27,8 @@ log = structlog.get_logger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 # GPT-4o pricing (USD per token)
-_PROMPT_TOKEN_COST = Decimal("0.000005")       # $5.00 / 1M
-_COMPLETION_TOKEN_COST = Decimal("0.000015")   # $15.00 / 1M
+_PROMPT_TOKEN_COST = Decimal("0.000005")  # $5.00 / 1M
+_COMPLETION_TOKEN_COST = Decimal("0.000015")  # $15.00 / 1M
 
 # GPT-4o context window
 _CONTEXT_WINDOW_TOKENS = 128_000
@@ -180,14 +180,9 @@ class AzureOpenAIClient:
             kwargs["response_format"] = response_format
         return await self._client.chat.completions.create(**kwargs)
 
-    def _check_token_budget(
-        self, messages: list[dict[str, str]], max_tokens: int
-    ) -> None:
+    def _check_token_budget(self, messages: list[dict[str, str]], max_tokens: int) -> None:
         """Raise ValueError if the message context would exceed the context window."""
-        total = sum(
-            len(self._encoding.encode(m.get("content", "") or ""))
-            for m in messages
-        )
+        total = sum(len(self._encoding.encode(m.get("content", "") or "")) for m in messages)
         if total + max_tokens > _CONTEXT_WINDOW_TOKENS:
             raise ValueError(
                 f"Token budget exceeded: {total} prompt tokens + {max_tokens} "
@@ -208,7 +203,7 @@ class AzureOpenAIClient:
         doc: dict[str, Any] = {
             "id": str(uuid4()),
             "type": "ai_call",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "agent_run_id": str(self._agent_run_id) if self._agent_run_id else None,
             "company_id": str(self._company_id) if self._company_id else None,
             "model": self._deployment,

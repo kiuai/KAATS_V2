@@ -1,8 +1,9 @@
 """Notification service — create and query in-app notifications."""
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import structlog
 from sqlalchemy import select, update
@@ -70,6 +71,7 @@ class NotificationService:
 
     async def unread_count(self, user_id: uuid.UUID) -> int:
         from sqlalchemy import func
+
         result = await self._db.execute(
             select(func.count(Notification.id)).where(
                 Notification.user_id == user_id,
@@ -80,7 +82,7 @@ class NotificationService:
 
     async def mark_read(self, notification_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         """Mark a single notification as read. Returns True if found."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         result = await self._db.execute(
             update(Notification)
             .where(Notification.id == notification_id, Notification.user_id == user_id)
@@ -90,7 +92,7 @@ class NotificationService:
 
     async def mark_all_read(self, user_id: uuid.UUID) -> int:
         """Mark all unread notifications as read. Returns count updated."""
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         result = await self._db.execute(
             update(Notification)
             .where(Notification.user_id == user_id, Notification.is_read == False)  # noqa: E712

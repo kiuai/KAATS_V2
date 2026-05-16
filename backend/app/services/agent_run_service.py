@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from sqlalchemy.orm import selectinload
 
 from app.cosmos import get_agent_runs_container
@@ -39,12 +38,13 @@ class AgentRunService:
             system_id=system_id,
             triggered_by_user_id=triggered_by_user_id,
             trigger_type="manual",
-            input_config=input_config or {
+            input_config=input_config
+            or {
                 "script_id": str(script_id) if script_id else None,
                 "requirement_ids": [str(r) for r in (requirement_ids or [])],
                 "target_formats": target_formats,
             },
-            started_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            started_at=datetime.now(UTC).replace(tzinfo=None),
             status="running",
         )
         self._db.add(run)
@@ -74,9 +74,7 @@ class AgentRunService:
             query = query.where(AgentRun.agent_type == agent_type)
         if run_status:
             query = query.where(AgentRun.status == run_status)
-        result = await self._db.execute(
-            query.order_by(AgentRun.created_at.desc())
-        )
+        result = await self._db.execute(query.order_by(AgentRun.created_at.desc()))
         return [AgentRunRead.model_validate(r) for r in result.scalars().all()]
 
     async def get_run(self, run_id: UUID) -> AgentRunRead:
@@ -87,9 +85,7 @@ class AgentRunService:
 
     async def get_run_with_tool_calls(self, run_id: UUID) -> AgentRunWithToolCalls:
         result = await self._db.execute(
-            select(AgentRun)
-            .where(AgentRun.id == run_id)
-            .options(selectinload(AgentRun.tool_calls))
+            select(AgentRun).where(AgentRun.id == run_id).options(selectinload(AgentRun.tool_calls))
         )
         run = result.scalar_one_or_none()
         if not run:
@@ -133,9 +129,7 @@ class AgentRunService:
             await asyncio.sleep(2)
             await self._db.refresh(run)
             try:
-                doc = await container.read_item(
-                    str(run_id), partition_key=str(run.company_id)
-                )
+                doc = await container.read_item(str(run_id), partition_key=str(run.company_id))
                 steps = doc.get("steps", [])
                 for step in steps[last_index:]:
                     yield {"type": "step", "data": step}

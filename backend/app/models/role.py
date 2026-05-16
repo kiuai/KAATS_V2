@@ -9,12 +9,10 @@ from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
-from app.models.enums import UserRoleEnum
 
 if TYPE_CHECKING:
-    from app.models.user import User
     from app.models.tenant import Company
-    from app.models.system import System
+    from app.models.user import User
 
 
 class UserRole(Base, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -25,6 +23,7 @@ class UserRole(Base, UUIDPrimaryKeyMixin, TimestampMixin):
       - company_id only        → COMPANY_ADMIN / QA / etc.
       - company_id + system_id → SYSTEM_MANAGER scoped to a specific system
     """
+
     __tablename__ = "user_roles"
     __table_args__ = (
         Index("ix_user_roles_user", "user_id"),
@@ -50,5 +49,5 @@ class UserRole(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
 
-    user: Mapped["User"] = relationship("User", back_populates="roles", foreign_keys=[user_id])
-    company: Mapped["Company | None"] = relationship("Company", back_populates="user_roles")
+    user: Mapped[User] = relationship("User", back_populates="roles", foreign_keys=[user_id])
+    company: Mapped[Company | None] = relationship("Company", back_populates="user_roles")

@@ -1,4 +1,5 @@
 """Reports router — 5 report endpoints with Permission guards."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -23,7 +24,10 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 # ── Legacy endpoints (backwards compat) ───────────────────────────────────────
 
-@router.get("/systems/{system_id}/summary", dependencies=[any_authenticated], include_in_schema=False)
+
+@router.get(
+    "/systems/{system_id}/summary", dependencies=[any_authenticated], include_in_schema=False
+)
 async def project_summary(
     system_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -31,7 +35,9 @@ async def project_summary(
     return await ReportService(db).project_summary(system_id)
 
 
-@router.get("/systems/{system_id}/coverage", dependencies=[any_authenticated], include_in_schema=False)
+@router.get(
+    "/systems/{system_id}/coverage", dependencies=[any_authenticated], include_in_schema=False
+)
 async def script_coverage(
     system_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -52,6 +58,7 @@ async def token_usage_legacy(
 
 
 # ── New endpoints ─────────────────────────────────────────────────────────────
+
 
 @router.get("/systems/{system_id}/coverage-by-domain")
 async def coverage_by_domain(

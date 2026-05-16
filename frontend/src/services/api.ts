@@ -5,6 +5,7 @@ import axios, {
 } from 'axios'
 import type { ApiError } from '@/types'
 import { useAuthStore } from '@/store/authStore'
+import { msalInstance } from '@/auth/msalInstance'
 
 const runtimeConfig = (window as { __KAATS_CONFIG__?: Record<string, string> }).__KAATS_CONFIG__ ?? {}
 const BASE_URL =
@@ -53,12 +54,21 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const status = error.response?.status
 
-    // On 401: clear auth state and let React Router redirect gracefully.
-    // Using clearAuth + location.replace avoids a hard reload that interrupts
-    // in-flight React renders and causes blank-screen flashes.
+    // On 401: clear auth state then navigate to login.
+    // IMPORTANT: We must also clear the MSAL cache so that MSAL cannot silently
+    // re-acquire a token on the next page load.  Without this, MSAL's
+    // ACQUIRE_TOKEN_SUCCESS event would repopulate accessToken in the Zustand
+    // store, causing LoginPage.useEffect to bounce the user straight back to the
+    // protected page — creating an infinite redirect loop.
     if (status === 401) {
       useAuthStore.getState().clearAuth()
-      window.location.replace('/login')
+      // Await clearCache() so sessionStorage is wiped BEFORE the new page loads.
+      // Without this, MSAL can silently re-acquire a token on the /login reload,
+      // which would cause LoginPage to immediately bounce back to the protected
+      // page and create an infinite redirect loop.
+      msalInstance.clearCache().finally(() => {
+        window.location.replace('/login')
+      })
       return Promise.reject(error)
     }
 

@@ -1,14 +1,15 @@
 """Gherkin (Cucumber) .feature exporter."""
+
 from __future__ import annotations
 
 import re
 
 from app.exporters.base import BaseExporter, ExportContext, StepType, TestCase, TestStep
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
@@ -35,6 +36,7 @@ def _gherkin_keyword(step: TestStep, used_given: bool, used_when: bool) -> str:
 # ---------------------------------------------------------------------------
 # Exporter
 # ---------------------------------------------------------------------------
+
 
 class GherkinExporter(BaseExporter):
     """Generates Gherkin .feature files (Cucumber / SpecFlow compatible)."""
@@ -128,8 +130,7 @@ class GherkinExporter(BaseExporter):
                 max_rows = max(len(v) for v in outline_params.values())
                 for i in range(max_rows):
                     row = [
-                        outline_params[h][i] if i < len(outline_params[h]) else ""
-                        for h in headers
+                        outline_params[h][i] if i < len(outline_params[h]) else "" for h in headers
                     ]
                     lines.append("      | " + " | ".join(row) + " |")
 

@@ -1,22 +1,23 @@
 """Test cycle service — system-scoped cycles, bulk assign, submit result, execute-all."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.test_cycle import TestAssignment, TestCycle, TestExecution
 from app.models.enums import (
     TestAssignmentStatus,
     TestCycleStatus,
     TestOutcome,
     UserRoleEnum,
 )
+from app.models.test_cycle import TestAssignment, TestCycle, TestExecution
 from app.schemas.test_cycle import (
     TestAssignmentCreate,
     TestAssignmentRead,
@@ -31,11 +32,13 @@ from app.schemas.test_cycle import (
 log = structlog.get_logger(__name__)
 
 # Roles that may act as testers on assignments
-_TESTER_ROLES: frozenset[str] = frozenset({
-    UserRoleEnum.VALIDATION_TESTER.value,
-    UserRoleEnum.QA.value,
-    UserRoleEnum.VALIDATION_LEAD.value,
-})
+_TESTER_ROLES: frozenset[str] = frozenset(
+    {
+        UserRoleEnum.VALIDATION_TESTER.value,
+        UserRoleEnum.QA.value,
+        UserRoleEnum.VALIDATION_LEAD.value,
+    }
+)
 
 
 class TestCycleService:
@@ -101,16 +104,26 @@ class TestCycleService:
         for cycle in cycles:
             base = TestCycleRead.model_validate(cycle)
             assignments = cycle.assignments or []
-            out.append({
-                **base.model_dump(),
-                "progress": {
-                    "total": len(assignments),
-                    "passed": sum(1 for a in assignments if a.status == TestAssignmentStatus.PASSED.value),
-                    "failed": sum(1 for a in assignments if a.status == TestAssignmentStatus.FAILED.value),
-                    "pending": sum(1 for a in assignments if a.status == TestAssignmentStatus.PENDING.value),
-                    "blocked": sum(1 for a in assignments if a.status == TestAssignmentStatus.BLOCKED.value),
-                },
-            })
+            out.append(
+                {
+                    **base.model_dump(),
+                    "progress": {
+                        "total": len(assignments),
+                        "passed": sum(
+                            1 for a in assignments if a.status == TestAssignmentStatus.PASSED.value
+                        ),
+                        "failed": sum(
+                            1 for a in assignments if a.status == TestAssignmentStatus.FAILED.value
+                        ),
+                        "pending": sum(
+                            1 for a in assignments if a.status == TestAssignmentStatus.PENDING.value
+                        ),
+                        "blocked": sum(
+                            1 for a in assignments if a.status == TestAssignmentStatus.BLOCKED.value
+                        ),
+                    },
+                }
+            )
         return out
 
     async def create_cycle(
@@ -139,7 +152,9 @@ class TestCycleService:
         )
         cycle = result.scalar_one_or_none()
         if not cycle:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test cycle not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Test cycle not found"
+            )
         base = TestCycleRead.model_validate(cycle)
         assignments = cycle.assignments or []
         return {
@@ -147,11 +162,21 @@ class TestCycleService:
             "assignments": [TestAssignmentRead.model_validate(a) for a in assignments],
             "progress": {
                 "total": len(assignments),
-                "passed": sum(1 for a in assignments if a.status == TestAssignmentStatus.PASSED.value),
-                "failed": sum(1 for a in assignments if a.status == TestAssignmentStatus.FAILED.value),
-                "pending": sum(1 for a in assignments if a.status == TestAssignmentStatus.PENDING.value),
-                "blocked": sum(1 for a in assignments if a.status == TestAssignmentStatus.BLOCKED.value),
-                "skipped": sum(1 for a in assignments if a.status == TestAssignmentStatus.SKIPPED.value),
+                "passed": sum(
+                    1 for a in assignments if a.status == TestAssignmentStatus.PASSED.value
+                ),
+                "failed": sum(
+                    1 for a in assignments if a.status == TestAssignmentStatus.FAILED.value
+                ),
+                "pending": sum(
+                    1 for a in assignments if a.status == TestAssignmentStatus.PENDING.value
+                ),
+                "blocked": sum(
+                    1 for a in assignments if a.status == TestAssignmentStatus.BLOCKED.value
+                ),
+                "skipped": sum(
+                    1 for a in assignments if a.status == TestAssignmentStatus.SKIPPED.value
+                ),
             },
         }
 
@@ -172,7 +197,7 @@ class TestCycleService:
                 detail="Cannot cancel a completed cycle",
             )
         cycle.status = TestCycleStatus.ABORTED.value
-        cycle.actual_end = datetime.now(timezone.utc).replace(tzinfo=None)
+        cycle.actual_end = datetime.now(UTC).replace(tzinfo=None)
         await self._db.flush()
         return TestCycleRead.model_validate(cycle)
 
@@ -191,9 +216,9 @@ class TestCycleService:
         - Scripts must be APPROVED.
         - Assigned users must have a tester role (VALIDATION_TESTER/QA/VALIDATION_LEAD).
         """
-        from app.models.test_script import TestScript
-        from app.models.role import UserRole
         from app.models.enums import TestScriptStatus
+        from app.models.role import UserRole
+        from app.models.test_script import TestScript
 
         cycle = await self._load_cycle(cycle_id)
         if cycle.status not in (
@@ -347,8 +372,8 @@ class TestCycleService:
         Dispatch ExecutionAgent for all APPROVED scripts in this cycle.
         Creates one AgentRun per script. Returns list of { script_id, agent_run_id }.
         """
-        from app.models.test_script import TestScript
         from app.models.enums import TestScriptStatus
+        from app.models.test_script import TestScript
         from app.services.agent_dispatcher import AgentDispatcher
 
         cycle = await self._load_cycle(cycle_id)
@@ -387,10 +412,12 @@ class TestCycleService:
                     script_id=script_id,
                     triggered_by_user_id=triggered_by_user_id,
                 )
-                dispatched.append({
-                    "script_id": str(script_id),
-                    "agent_run_id": str(agent_run.id),
-                })
+                dispatched.append(
+                    {
+                        "script_id": str(script_id),
+                        "agent_run_id": str(agent_run.id),
+                    }
+                )
             except Exception as exc:
                 log.warning(
                     "test_cycle.execute_all.script_skipped",
@@ -407,7 +434,7 @@ class TestCycleService:
         # Transition cycle to IN_PROGRESS
         if cycle.status == TestCycleStatus.PLANNED.value:
             cycle.status = TestCycleStatus.IN_PROGRESS.value
-            cycle.actual_start = datetime.now(timezone.utc).replace(tzinfo=None)
+            cycle.actual_start = datetime.now(UTC).replace(tzinfo=None)
 
         await self._db.flush()
         log.info("test_cycle.execute_all", cycle_id=str(cycle_id), dispatched=len(dispatched))
@@ -418,7 +445,9 @@ class TestCycleService:
     async def _load_cycle(self, cycle_id: UUID) -> TestCycle:
         cycle = await self._db.get(TestCycle, cycle_id)
         if not cycle:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Test cycle not found")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Test cycle not found"
+            )
         return cycle
 
     async def _load_assignment(self, cycle_id: UUID, assignment_id: UUID) -> TestAssignment:
@@ -446,7 +475,6 @@ def _is_tester_only(current_user) -> bool:
         UserRoleEnum.ENTERPRISE_ADMIN.value,
         UserRoleEnum.GLOBAL_ADMIN.value,
     }
-    return (
-        UserRoleEnum.VALIDATION_TESTER.value in role_values
-        and not role_values.intersection(lead_or_above)
+    return UserRoleEnum.VALIDATION_TESTER.value in role_values and not role_values.intersection(
+        lead_or_above
     )

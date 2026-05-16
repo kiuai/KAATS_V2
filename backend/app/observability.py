@@ -28,6 +28,7 @@ Usage
 Call ``configure_logging()`` once at process start (before any loggers are
 created) and ``configure_telemetry(app)`` once after the FastAPI app is built.
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
 # ─────────────────────────────────────────────────────────────────────────────
 # Logging
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def configure_logging(log_level: str = "INFO", *, json: bool = True) -> None:
     """
@@ -78,7 +80,7 @@ def configure_logging(log_level: str = "INFO", *, json: bool = True) -> None:
 
     # ── Shared processors (applied to every log record) ───────────────────────
     shared_processors: list = [
-        merge_contextvars,                          # pull correlation_id etc.
+        merge_contextvars,  # pull correlation_id etc.
         structlog.stdlib.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
@@ -98,7 +100,8 @@ def configure_logging(log_level: str = "INFO", *, json: bool = True) -> None:
     else:
         # ── Console renderer (local dev) ──────────────────────────────────────
         structlog.configure(
-            processors=shared_processors + [
+            processors=shared_processors
+            + [
                 structlog.dev.ConsoleRenderer(colors=True),
             ],
             wrapper_class=structlog.make_filtering_bound_logger(level),
@@ -112,8 +115,9 @@ def configure_logging(log_level: str = "INFO", *, json: bool = True) -> None:
 # Tracing (OpenTelemetry)
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def configure_telemetry(
-    fastapi_app: "FastAPI",
+    fastapi_app: FastAPI,
     *,
     service_name: str = "kaats-api",
     applicationinsights_connection_string: str | None = None,
@@ -129,24 +133,26 @@ def configure_telemetry(
         from opentelemetry import trace
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
     except ImportError:
         # OpenTelemetry packages not installed — skip silently
         return
 
-    resource = Resource.create({
-        "service.name": service_name,
-        "service.version": "1.0.0",
-    })
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "service.version": "1.0.0",
+        }
+    )
     provider = TracerProvider(resource=resource)
 
     # ── Choose exporter ───────────────────────────────────────────────────────
     if applicationinsights_connection_string:
         try:
             from azure.monitor.opentelemetry.exporter import AzureMonitorTraceExporter
+
             exporter = AzureMonitorTraceExporter(
                 connection_string=applicationinsights_connection_string,
             )
@@ -156,6 +162,7 @@ def configure_telemetry(
     elif otlp_endpoint:
         try:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
             exporter = OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)
             provider.add_span_processor(BatchSpanProcessor(exporter))
         except ImportError:
@@ -176,8 +183,10 @@ def configure_telemetry(
         "telemetry.configured",
         service_name=service_name,
         exporter=(
-            "azure_monitor" if applicationinsights_connection_string
-            else "otlp" if otlp_endpoint
+            "azure_monitor"
+            if applicationinsights_connection_string
+            else "otlp"
+            if otlp_endpoint
             else "none"
         ),
     )
@@ -187,6 +196,7 @@ def instrument_sqlalchemy(engine) -> None:  # type: ignore[type-arg]
     """Instrument a SQLAlchemy async engine.  Call once after engine creation."""
     try:
         from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
         SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
     except ImportError:
         pass

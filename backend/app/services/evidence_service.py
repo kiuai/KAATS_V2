@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.blob import download_bytes, generate_sas_url, build_evidence_path
+from app.blob import download_bytes, generate_sas_url
 from app.models.execution_evidence import ExecutionRun, ExecutionStepResult
 from app.models.test_result import EvidenceScreenshot
 from app.schemas.evidence import (
@@ -75,13 +75,10 @@ class EvidenceService:
             blob_path = pdf_url
         return generate_sas_url(blob_path, ttl_hours=1)
 
-    async def get_step_screenshot_sas_url(
-        self, run_id: UUID, step_number: int
-    ) -> str:
+    async def get_step_screenshot_sas_url(self, run_id: UUID, step_number: int) -> str:
         """Return a 1-hour SAS URL for a specific step's screenshot."""
         result = await self._db.execute(
-            select(ExecutionStepResult)
-            .where(
+            select(ExecutionStepResult).where(
                 ExecutionStepResult.execution_run_id == run_id,
                 ExecutionStepResult.step_number == step_number,
             )
@@ -142,7 +139,7 @@ class EvidenceService:
         return EvidenceVerifyResult(
             valid=len(failed_steps) == 0,
             failed_steps=failed_steps,
-            checked_at=datetime.now(timezone.utc),
+            checked_at=datetime.now(UTC),
         )
 
     async def delete_evidence(self, execution_id: UUID) -> None:
@@ -152,7 +149,7 @@ class EvidenceService:
                 EvidenceScreenshot.deleted_at.is_(None),
             )
         )
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         for s in result.scalars().all():
             s.deleted_at = now
         await self._db.flush()

@@ -7,7 +7,7 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-_pool: "BrowserPool | None" = None
+_pool: BrowserPool | None = None
 
 
 class BrowserPool:

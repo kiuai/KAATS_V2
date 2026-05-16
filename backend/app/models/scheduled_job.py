@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,16 +34,16 @@ class ScheduledJob(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     timezone: Mapped[str] = mapped_column(String(100), nullable=False, default="UTC")
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     job_config: Mapped[dict | None] = mapped_column(JSON)
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
     max_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     last_run_status: Mapped[str | None] = mapped_column(String(50))
 
-    runs: Mapped[list["ScheduledJobRun"]] = relationship(
-        "ScheduledJobRun", back_populates="job"
-    )
+    runs: Mapped[list[ScheduledJobRun]] = relationship("ScheduledJobRun", back_populates="job")
 
 
 class ScheduledJobRun(Base, UUIDPrimaryKeyMixin):
@@ -61,5 +61,5 @@ class ScheduledJobRun(Base, UUIDPrimaryKeyMixin):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     failure_reason: Mapped[str | None] = mapped_column(Text)
 
-    job: Mapped["ScheduledJob"] = relationship("ScheduledJob", back_populates="runs")
-    agent_run: Mapped["AgentRun | None"] = relationship("AgentRun")
+    job: Mapped[ScheduledJob] = relationship("ScheduledJob", back_populates="runs")
+    agent_run: Mapped[AgentRun | None] = relationship("AgentRun")

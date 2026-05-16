@@ -1,4 +1,5 @@
 """Test cycles router — system-scoped cycles, bulk-assign, submit result, execute-all."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -14,7 +15,7 @@ from app.auth.permissions import (
     can_run_agents,
     require_system_access,
 )
-from app.dependencies import get_db, get_current_user_id, get_current_company_id
+from app.dependencies import get_current_company_id, get_current_user_id, get_db
 from app.schemas.test_cycle import (
     TestAssignmentCreate,
     TestAssignmentRead,
@@ -33,7 +34,12 @@ router = APIRouter(tags=["test_cycles"])
 
 # ── Legacy execution endpoints (backwards compat) ─────────────────────────────
 
-@router.get("/scripts/{script_id}/executions", response_model=list[TestExecutionRead], include_in_schema=False)
+
+@router.get(
+    "/scripts/{script_id}/executions",
+    response_model=list[TestExecutionRead],
+    include_in_schema=False,
+)
 async def list_executions(
     script_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -51,7 +57,12 @@ async def get_execution(
     return await TestCycleService(db).get(execution_id)
 
 
-@router.post("/executions/{execution_id}/rerun", response_model=TestExecutionRead, status_code=202, include_in_schema=False)
+@router.post(
+    "/executions/{execution_id}/rerun",
+    response_model=TestExecutionRead,
+    status_code=202,
+    include_in_schema=False,
+)
 async def rerun_execution(
     execution_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -60,7 +71,9 @@ async def rerun_execution(
     return await TestCycleService(db).rerun(execution_id)
 
 
-@router.delete("/executions/{execution_id}", status_code=204, response_model=None, include_in_schema=False)
+@router.delete(
+    "/executions/{execution_id}", status_code=204, response_model=None, include_in_schema=False
+)
 async def delete_execution(
     execution_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -70,6 +83,7 @@ async def delete_execution(
 
 
 # ── System-scoped cycles ──────────────────────────────────────────────────────
+
 
 @router.get("/systems/{system_id}/test-cycles")
 async def list_test_cycles(
@@ -99,6 +113,7 @@ async def create_test_cycle(
 
 
 # ── Cycle detail / update / cancel ────────────────────────────────────────────
+
 
 @router.get("/test-cycles/{cycle_id}")
 async def get_test_cycle(
@@ -130,7 +145,10 @@ async def cancel_test_cycle(
 
 # ── Assignments ───────────────────────────────────────────────────────────────
 
-@router.post("/test-cycles/{cycle_id}/assignments", response_model=list[TestAssignmentRead], status_code=201)
+
+@router.post(
+    "/test-cycles/{cycle_id}/assignments", response_model=list[TestAssignmentRead], status_code=201
+)
 async def bulk_assign(
     cycle_id: UUID,
     assignments: list[TestAssignmentCreate],
@@ -160,7 +178,9 @@ async def list_assignments(
     )
 
 
-@router.patch("/test-cycles/{cycle_id}/assignments/{assignment_id}", response_model=TestAssignmentRead)
+@router.patch(
+    "/test-cycles/{cycle_id}/assignments/{assignment_id}", response_model=TestAssignmentRead
+)
 async def update_assignment(
     cycle_id: UUID,
     assignment_id: UUID,
@@ -173,7 +193,12 @@ async def update_assignment(
 
 # ── Submit result ─────────────────────────────────────────────────────────────
 
-@router.post("/test-cycles/{cycle_id}/assignments/{assignment_id}/result", response_model=TestResultRead, status_code=201)
+
+@router.post(
+    "/test-cycles/{cycle_id}/assignments/{assignment_id}/result",
+    response_model=TestResultRead,
+    status_code=201,
+)
 async def submit_result(
     cycle_id: UUID,
     assignment_id: UUID,
@@ -196,6 +221,7 @@ async def submit_result(
 
 
 # ── Execute all ───────────────────────────────────────────────────────────────
+
 
 @router.post("/test-cycles/{cycle_id}/execute-all", status_code=202)
 async def execute_all(

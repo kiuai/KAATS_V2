@@ -110,12 +110,11 @@ class AgentDispatcher:
         # Monitor alert instead.
         if not scheduled_job_id:
             from app.services.usage_service import UsageService
+
             await UsageService(self._db).assert_agent_run_allowed(company_id)
 
         trigger_type = (
-            AgentTriggerType.SCHEDULED.value
-            if scheduled_job_id
-            else AgentTriggerType.MANUAL.value
+            AgentTriggerType.SCHEDULED.value if scheduled_job_id else AgentTriggerType.MANUAL.value
         )
         run = AgentRun(
             agent_type=agent_type,

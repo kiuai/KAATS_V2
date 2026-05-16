@@ -68,7 +68,7 @@ export default function SchedulerPage() {
                   <td className="px-5 py-3 font-mono text-xs">{job.cron_expression}</td>
                   <td className="px-5 py-3 text-gray-500">{job.timezone}</td>
                   <td className="px-5 py-3 text-gray-500">
-                    {new Date(job.next_run_at).toLocaleString()}
+                    {job.next_run_at ? new Date(job.next_run_at).toLocaleString() : '—'}
                   </td>
                   <td className="px-5 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${job.is_enabled ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>

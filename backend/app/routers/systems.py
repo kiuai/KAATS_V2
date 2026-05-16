@@ -1,4 +1,5 @@
 """Systems router — filtered list, stats, assign-manager, system team."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -12,7 +13,7 @@ from app.auth.permissions import (
     can_manage_company,
     require_system_access,
 )
-from app.dependencies import get_db, get_current_user_id, get_current_company_id
+from app.dependencies import get_current_company_id, get_current_user_id, get_db
 from app.schemas.system import (
     AssignManagerBody,
     SystemCreate,
@@ -27,6 +28,7 @@ router = APIRouter(tags=["systems"])
 
 
 # ── List / Create ─────────────────────────────────────────────────────────────
+
 
 @router.get("/systems", response_model=list[SystemRead])
 async def list_systems(
@@ -47,7 +49,9 @@ async def list_systems(
     )
 
 
-@router.post("/systems", response_model=SystemRead, status_code=201, dependencies=[can_manage_company])
+@router.post(
+    "/systems", response_model=SystemRead, status_code=201, dependencies=[can_manage_company]
+)
 async def create_system(
     body: SystemCreate,
     request: Request,
@@ -63,6 +67,7 @@ async def create_system(
 
 
 # ── Detail / Update / Delete ──────────────────────────────────────────────────
+
 
 @router.get("/systems/{system_id}", response_model=SystemRead)
 async def get_system(
@@ -113,6 +118,7 @@ async def delete_system(
 
 # ── Assign manager ────────────────────────────────────────────────────────────
 
+
 @router.post("/systems/{system_id}/assign-manager", response_model=SystemRead)
 async def assign_manager(
     system_id: UUID,
@@ -130,6 +136,7 @@ async def assign_manager(
 
 
 # ── System team ───────────────────────────────────────────────────────────────
+
 
 @router.get("/systems/{system_id}/team")
 async def get_system_team(

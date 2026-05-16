@@ -5,13 +5,12 @@ POST /billing/portal          — create a Stripe Customer Portal session
 POST /billing/webhook         — Stripe webhook receiver (raw body, no auth)
 GET  /billing/status          — current plan + subscription status
 """
+
 from __future__ import annotations
 
-import uuid
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -142,7 +141,9 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)) -
     sig = request.headers.get("stripe-signature", "")
     event = BillingService.construct_event(payload, sig)
     if event is None:
-        raise HTTPException(status_code=400, detail="Invalid webhook signature or Stripe not configured")
+        raise HTTPException(
+            status_code=400, detail="Invalid webhook signature or Stripe not configured"
+        )
 
     event_type = event.get("type", "")
 

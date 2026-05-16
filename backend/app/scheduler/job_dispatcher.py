@@ -2,9 +2,10 @@
 Dispatch a ScheduledJob: resolve auto-expand config, call AgentDispatcher,
 create ScheduledJobRun, and record the trigger on the job record.
 """
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
@@ -28,7 +29,7 @@ async def dispatch_scheduled_job(db: AsyncSession, job: ScheduledJob) -> Schedul
     """
     from app.services.agent_dispatcher import AgentDispatcher
 
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
     resolved_config = await _resolve_config(db, job)
 
     dispatcher = AgentDispatcher(db)
@@ -52,6 +53,7 @@ async def dispatch_scheduled_job(db: AsyncSession, job: ScheduledJob) -> Schedul
         log.info("scheduler.one_shot.completed", job_id=str(job.id))
     else:
         from app.scheduler.cron_parser import compute_next_run
+
         tz = job.timezone or "UTC"
         job.next_run_at = compute_next_run(job.cron_expression or "0 0 * * *", tz, now_utc)
 
@@ -68,12 +70,11 @@ async def dispatch_scheduled_job(db: AsyncSession, job: ScheduledJob) -> Schedul
 
 
 async def _dispatch_for_type(
-    dispatcher: "AgentDispatcher",
+    dispatcher: AgentDispatcher,
     job: ScheduledJob,
     config: dict,
-) -> "AgentRun":
+) -> AgentRun:
     """Route to the correct AgentDispatcher method based on agent_type."""
-    from app.models.agent_run import AgentRun
 
     company_id: UUID = job.company_id
     system_id: UUID | None = job.system_id
@@ -158,10 +159,11 @@ async def _active_requirements_without_scripts(db: AsyncSession, system_id: UUID
     """
     Return IDs of ACTIVE requirements in the system that have no APPROVED test script.
     """
-    from sqlalchemy import select, exists
+    from sqlalchemy import exists, select
+
+    from app.models.enums import RequirementStatus, TestScriptStatus
     from app.models.requirement import Requirement
     from app.models.test_script import TestScript
-    from app.models.enums import RequirementStatus, TestScriptStatus
 
     approved_sub = (
         select(TestScript.requirement_id)
@@ -188,12 +190,14 @@ async def _approved_scripts_not_recently_run(db: AsyncSession, system_id: UUID) 
     in the last 24 hours.
     """
     from datetime import timedelta
-    from sqlalchemy import select, exists
-    from app.models.test_script import TestScript
-    from app.models.execution_evidence import ExecutionRun
-    from app.models.enums import TestScriptStatus
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).replace(tzinfo=None)
+    from sqlalchemy import exists, select
+
+    from app.models.enums import TestScriptStatus
+    from app.models.execution_evidence import ExecutionRun
+    from app.models.test_script import TestScript
+
+    cutoff = (datetime.now(UTC) - timedelta(hours=24)).replace(tzinfo=None)
 
     recent_sub = (
         select(ExecutionRun.test_script_id)
@@ -215,6 +219,7 @@ async def _approved_scripts_not_recently_run(db: AsyncSession, system_id: UUID) 
 
 
 # ── Backwards-compatible shim ─────────────────────────────────────────────────
+
 
 async def dispatch_job(db: AsyncSession, job: ScheduledJob) -> ScheduledJobRun:
     """Legacy alias used by the manual trigger endpoint."""

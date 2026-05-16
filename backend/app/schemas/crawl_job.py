@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.enums import CrawlerType, CrawlTriggerType, PageType
+from app.models.enums import CrawlerType
 
 
 class CrawlPageRead(BaseModel):

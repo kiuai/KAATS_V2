@@ -1,4 +1,5 @@
 """In-app notification model."""
+
 from __future__ import annotations
 
 import uuid
@@ -34,9 +35,7 @@ class Notification(Base, UUIDPrimaryKeyMixin):
     resource_type: Mapped[str | None] = mapped_column(String(64))
     resource_id: Mapped[str | None] = mapped_column(String(36))
 
-    is_read: Mapped[bool] = mapped_column(
-        nullable=False, default=False, server_default="0"
-    )
+    is_read: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="0")
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),

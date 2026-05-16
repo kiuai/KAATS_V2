@@ -5,8 +5,6 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.models.enums import ExecutionStatus, StepOutcome
-
 
 class EvidenceScreenshotRead(BaseModel):
     id: UUID

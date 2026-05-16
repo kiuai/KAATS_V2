@@ -186,7 +186,7 @@ def create_app() -> FastAPI:
 
     # ── Routers ───────────────────────────────────────────────────────────────
     PREFIX = "/api/v1"
-    app.include_router(health.router)   # no prefix — /health/live, /health/ready
+    app.include_router(health.router)  # no prefix — /health/live, /health/ready
     app.include_router(auth.router, prefix=PREFIX)
     app.include_router(admin.router, prefix=PREFIX)
     app.include_router(audit.router, prefix=PREFIX)

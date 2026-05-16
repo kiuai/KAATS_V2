@@ -3,7 +3,12 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
 import { Download, ShieldCheck, ShieldOff } from 'lucide-react'
 import apiClient from '@/services/api'
-import type { EvidenceScreenshot, EvidenceVerifyResult } from '@/types'
+import type { EvidenceScreenshot } from '@/types'
+
+interface EvidenceVerifyResult {
+  valid: boolean
+  failed_steps: number[]
+}
 
 export default function EvidenceViewerPage() {
   const { executionId } = useParams<{ executionId: string }>()

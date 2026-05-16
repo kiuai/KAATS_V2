@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,7 +43,9 @@ class TestScript(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
     )
     script_content: Mapped[str | None] = mapped_column(Text)
     rendered_content: Mapped[str | None] = mapped_column(Text)
-    ai_generated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    ai_generated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     ai_model_version: Mapped[str | None] = mapped_column(String(100))
     approved_by: Mapped[uuid.UUID | None] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("users.id")
@@ -55,11 +57,15 @@ class TestScript(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("users.id")
     )
 
-    requirement: Mapped["Requirement | None"] = relationship("Requirement", back_populates="test_scripts")
-    versions: Mapped[list["TestScriptVersion"]] = relationship("TestScriptVersion", back_populates="script")
-    cases: Mapped[list["TestCase"]] = relationship("TestCase", back_populates="script")
-    approver: Mapped["User | None"] = relationship("User", foreign_keys=[approved_by])
-    creator: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
+    requirement: Mapped[Requirement | None] = relationship(
+        "Requirement", back_populates="test_scripts"
+    )
+    versions: Mapped[list[TestScriptVersion]] = relationship(
+        "TestScriptVersion", back_populates="script"
+    )
+    cases: Mapped[list[TestCase]] = relationship("TestCase", back_populates="script")
+    approver: Mapped[User | None] = relationship("User", foreign_keys=[approved_by])
+    creator: Mapped[User | None] = relationship("User", foreign_keys=[created_by])
 
 
 class TestScriptVersion(Base, UUIDPrimaryKeyMixin):
@@ -79,7 +85,7 @@ class TestScriptVersion(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=False), server_default="GETUTCDATE()", nullable=False
     )
 
-    script: Mapped["TestScript"] = relationship("TestScript", back_populates="versions")
+    script: Mapped[TestScript] = relationship("TestScript", back_populates="versions")
 
 
 class TestCase(Base, UUIDPrimaryKeyMixin):
@@ -90,11 +96,13 @@ class TestCase(Base, UUIDPrimaryKeyMixin):
     )
     name: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    stop_on_failure: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    stop_on_failure: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    script: Mapped["TestScript"] = relationship("TestScript", back_populates="cases")
-    steps: Mapped[list["TestStep"]] = relationship(
+    script: Mapped[TestScript] = relationship("TestScript", back_populates="cases")
+    steps: Mapped[list[TestStep]] = relationship(
         "TestStep", back_populates="case", order_by="TestStep.step_number"
     )
 
@@ -111,4 +119,4 @@ class TestStep(Base, UUIDPrimaryKeyMixin):
     expected_outcome: Mapped[str | None] = mapped_column(Text)
     parameters: Mapped[dict | None] = mapped_column(JSON)
 
-    case: Mapped["TestCase"] = relationship("TestCase", back_populates="steps")
+    case: Mapped[TestCase] = relationship("TestCase", back_populates="steps")

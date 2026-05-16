@@ -1,6 +1,7 @@
 """
 Test Scripts router — system-scoped CRUD, status workflow, versioning, export.
 """
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -12,8 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.azure_ad import CurrentUser, get_current_user, get_tenant_context
 from app.auth.permissions import (
-    Permission,
     ROLE_PERMISSIONS,
+    Permission,
     any_authenticated,
     can_manage_content,
     require_system_access,
@@ -23,7 +24,6 @@ from app.models.enums import UserRoleEnum
 from app.schemas.test_script import (
     BulkExportRequest,
     BulkExportResultRead,
-    ExportResultRead,
     TestScriptCreate,
     TestScriptRead,
     TestScriptRejectBody,
@@ -36,6 +36,7 @@ router = APIRouter(tags=["test_scripts"])
 
 
 # ── System-scoped list / create ───────────────────────────────────────────────
+
 
 @router.get(
     "/systems/{system_id}/test-scripts",
@@ -92,6 +93,7 @@ async def create_script(
 
 # ── Script detail / update / delete ──────────────────────────────────────────
 
+
 @router.get(
     "/test-scripts/{script_id}",
     response_model=TestScriptRead,
@@ -139,6 +141,7 @@ async def delete_script(
 
 
 # ── Status workflow ───────────────────────────────────────────────────────────
+
 
 @router.post(
     "/test-scripts/{script_id}/submit-for-review",
@@ -190,6 +193,7 @@ async def reject_script(
 
 # ── Version history ───────────────────────────────────────────────────────────
 
+
 @router.get(
     "/test-scripts/{script_id}/versions",
     response_model=list[TestScriptVersionRead],
@@ -218,6 +222,7 @@ async def get_version(
 
 
 # ── Export ────────────────────────────────────────────────────────────────────
+
 
 @router.get(
     "/test-scripts/{script_id}/export",
@@ -291,6 +296,7 @@ async def export_cycle(
 
 
 # ── Legacy routes (backwards compatibility) ───────────────────────────────────
+
 
 @router.get(
     "/systems/{system_id}/scripts",
@@ -367,6 +373,7 @@ async def export_script_legacy(
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
+
 
 def _get_bpo_domain(current_user: CurrentUser) -> str | None:
     """Return business_domain restriction for BPO users; None for everyone else."""
@@ -450,6 +457,7 @@ async def bulk_update_script_status(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> BulkOpResult:
     from app.models.test_script import TestScript
+
     if not body.ids:
         raise HTTPException(status_code=422, detail="ids must not be empty")
     updated = 0

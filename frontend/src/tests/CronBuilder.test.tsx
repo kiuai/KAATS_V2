@@ -99,16 +99,17 @@ describe('CronBuilder', () => {
 
   it('displays a human-readable preview of the schedule', () => {
     render(<CronBuilder value="0 9 * * *" onChange={vi.fn()} />)
-    // Preview text should be somewhere in the component
-    expect(screen.getByText(/every day|09:00/i)).toBeInTheDocument()
+    // Preview text is rendered in a span; use getAllByText to handle multiple matches
+    const matches = screen.getAllByText(/every day|09:00/i)
+    expect(matches.length).toBeGreaterThanOrEqual(1)
   })
 
   it('updates cron string when hour is changed', async () => {
     const onChange = vi.fn()
     render(<CronBuilder value="0 9 * * *" onChange={onChange} />)
 
-    // Find the hour select (labeled "Hour") and change it
-    const hourLabel = screen.getByText(/hour/i)
+    // Find the hour select (labeled "HOUR" — label is uppercased via CSS but text is "Hour")
+    const hourLabel = screen.getByText(/^hour$/i)
     const hourSelect = hourLabel.parentElement?.querySelector('select') as HTMLSelectElement
     expect(hourSelect).toBeTruthy()
 

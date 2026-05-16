@@ -5,13 +5,14 @@ Responsible for:
 - Firing payloads to registered endpoints (fire-and-forget, best-effort)
 - Recording WebhookDelivery rows
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -100,9 +101,7 @@ class WebhookService:
         await self._db.flush()
         return ep
 
-    async def delete_endpoint(
-        self, endpoint_id: uuid.UUID, company_id: uuid.UUID
-    ) -> bool:
+    async def delete_endpoint(self, endpoint_id: uuid.UUID, company_id: uuid.UUID) -> bool:
         ep = await self.get_endpoint(endpoint_id, company_id)
         if ep is None:
             return False
@@ -178,7 +177,7 @@ class WebhookService:
             delivery.response_status = resp.status_code
             delivery.response_body = resp.text[:2000]
             delivery.status = "success" if resp.is_success else "failed"
-            delivery.delivered_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            delivery.delivered_at = datetime.now(UTC).replace(tzinfo=None)
             log.info(
                 "webhook.delivered",
                 endpoint_id=str(endpoint.id),

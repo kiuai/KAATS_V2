@@ -1,10 +1,11 @@
 """Webhook endpoint and delivery models."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -49,13 +50,11 @@ class WebhookEndpoint(Base, UUIDPrimaryKeyMixin):
         nullable=False,
     )
 
-    deliveries: Mapped[list["WebhookDelivery"]] = relationship(
+    deliveries: Mapped[list[WebhookDelivery]] = relationship(
         "WebhookDelivery", back_populates="endpoint", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (
-        Index("ix_webhook_endpoints_company", "company_id"),
-    )
+    __table_args__ = (Index("ix_webhook_endpoints_company", "company_id"),)
 
 
 class WebhookDelivery(Base, UUIDPrimaryKeyMixin):
@@ -90,10 +89,6 @@ class WebhookDelivery(Base, UUIDPrimaryKeyMixin):
         nullable=False,
     )
 
-    endpoint: Mapped["WebhookEndpoint"] = relationship(
-        "WebhookEndpoint", back_populates="deliveries"
-    )
+    endpoint: Mapped[WebhookEndpoint] = relationship("WebhookEndpoint", back_populates="deliveries")
 
-    __table_args__ = (
-        Index("ix_webhook_deliveries_endpoint_created", "endpoint_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_webhook_deliveries_endpoint_created", "endpoint_id", "created_at"),)

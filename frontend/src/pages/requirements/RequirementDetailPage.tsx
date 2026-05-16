@@ -361,7 +361,7 @@ export default function RequirementDetailPage() {
 
   if (!requirement) return null
 
-  const field = (setter: (v: string) => void) => (v: string) => {
+  const field = (setter: (v: any) => void) => (v: string) => {
     setter(v)
     setFormDirty(true)
   }

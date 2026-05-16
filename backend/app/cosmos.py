@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import structlog
-from azure.cosmos.aio import CosmosClient, ContainerProxy, DatabaseProxy
+from azure.cosmos.aio import ContainerProxy, CosmosClient, DatabaseProxy
 from azure.cosmos.exceptions import CosmosHttpResponseError
 
 from app.config import get_settings
@@ -44,7 +44,9 @@ async def init_cosmos() -> None:
     try:
         await db.read()
     except CosmosHttpResponseError as exc:
-        log.warning("cosmos.database_not_found", database=settings.azure_cosmos_database, error=str(exc))
+        log.warning(
+            "cosmos.database_not_found", database=settings.azure_cosmos_database, error=str(exc)
+        )
         return
 
     container = get_agent_runs_container()

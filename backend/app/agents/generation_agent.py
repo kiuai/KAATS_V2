@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from uuid import UUID
 
 import structlog
 from langchain.tools import StructuredTool
@@ -14,9 +13,10 @@ from app.blob import get_blob_service
 from app.models.enums import AgentType
 
 if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.auth.azure_ad import CurrentUser
     from app.models.agent_run import AgentRun
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = structlog.get_logger(__name__)
 
@@ -44,9 +44,9 @@ class GenerationAgent(BaseAgent):
 
     def __init__(
         self,
-        run: "AgentRun",
-        db: "AsyncSession",
-        current_user: "CurrentUser | None",
+        run: AgentRun,
+        db: AsyncSession,
+        current_user: CurrentUser | None,
         config: dict[str, Any],
     ) -> None:
         super().__init__(run, db, current_user, config)
@@ -67,11 +67,7 @@ class GenerationAgent(BaseAgent):
             blob_client = None  # type: ignore[assignment]
 
         # Seed memory with values the tools need at call time
-        triggered_by = (
-            str(self.run.triggered_by_user_id)
-            if self.run.triggered_by_user_id
-            else None
-        )
+        triggered_by = str(self.run.triggered_by_user_id) if self.run.triggered_by_user_id else None
         self.memory.set("triggered_by_user_id", triggered_by)
         self.memory.set("system_context", self.config.get("system_context", ""))
         self.memory.set("base_url", self.config.get("base_url", ""))
@@ -108,14 +104,16 @@ class GenerationAgent(BaseAgent):
         )
 
         try:
-            await self._executor.ainvoke({  # type: ignore[union-attr]
-                "input": self._build_input_prompt(
-                    requirement_ids=req_ids,
-                    target_formats=target_formats,
-                    base_url=base_url,
-                    system_context=system_context,
-                )
-            })
+            await self._executor.ainvoke(
+                {  # type: ignore[union-attr]
+                    "input": self._build_input_prompt(
+                        requirement_ids=req_ids,
+                        target_formats=target_formats,
+                        base_url=base_url,
+                        system_context=system_context,
+                    )
+                }
+            )
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "generation_agent.executor_error",

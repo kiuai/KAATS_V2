@@ -38,8 +38,10 @@ class ErrorResponse(BaseModel):
 # Offset + cursor pagination
 # ---------------------------------------------------------------------------
 
+
 class Page(BaseModel, Generic[T]):
     """Unified paginated response with both offset metadata and optional cursor."""
+
     items: list[T]
     total: int
     limit: int

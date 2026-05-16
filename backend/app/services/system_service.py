@@ -1,4 +1,5 @@
 """System service — CRUD, stats, manager assignment, soft-delete guard."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -8,8 +9,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.system import System
 from app.models.enums import AgentType, RequirementStatus, TestScriptStatus, UserRoleEnum
+from app.models.system import System
 from app.schemas.system import (
     AssignManagerBody,
     SystemCreate,
@@ -22,12 +23,14 @@ from app.schemas.system import (
 log = structlog.get_logger(__name__)
 
 # Admin roles that can see ALL company systems (not just own)
-_ADMIN_ROLES: frozenset[str] = frozenset({
-    UserRoleEnum.GLOBAL_ADMIN.value,
-    UserRoleEnum.ENTERPRISE_ADMIN.value,
-    UserRoleEnum.COMPANY_ADMIN.value,
-    UserRoleEnum.VALIDATION_LEAD.value,
-})
+_ADMIN_ROLES: frozenset[str] = frozenset(
+    {
+        UserRoleEnum.GLOBAL_ADMIN.value,
+        UserRoleEnum.ENTERPRISE_ADMIN.value,
+        UserRoleEnum.COMPANY_ADMIN.value,
+        UserRoleEnum.VALIDATION_LEAD.value,
+    }
+)
 
 
 class SystemService:
@@ -128,8 +131,8 @@ class SystemService:
 
     async def delete_system(self, system_id: UUID) -> None:
         """Soft-delete. Raises 409 if active test cycles exist."""
-        from app.models.test_cycle import TestCycle
         from app.models.enums import TestCycleStatus
+        from app.models.test_cycle import TestCycle
 
         system = await self._load(system_id)
 
@@ -137,10 +140,12 @@ class SystemService:
         active_cycle_count = await self._db.scalar(
             select(func.count()).where(
                 TestCycle.system_id == system_id,
-                TestCycle.status.in_([
-                    TestCycleStatus.PLANNED.value,
-                    TestCycleStatus.IN_PROGRESS.value,
-                ]),
+                TestCycle.status.in_(
+                    [
+                        TestCycleStatus.PLANNED.value,
+                        TestCycleStatus.IN_PROGRESS.value,
+                    ]
+                ),
             )
         )
         if (active_cycle_count or 0) > 0:
@@ -234,39 +239,51 @@ class SystemService:
         return system
 
     async def _compute_stats(self, system_id: UUID) -> SystemStats:
+        from app.models.agent_run import AgentRun
         from app.models.requirement import Requirement
         from app.models.test_script import TestScript
-        from app.models.agent_run import AgentRun
 
-        req_total = await self._db.scalar(
-            select(func.count()).where(
-                Requirement.system_id == system_id,
-                Requirement.deleted_at.is_(None),
+        req_total = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    Requirement.system_id == system_id,
+                    Requirement.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        req_active = await self._db.scalar(
-            select(func.count()).where(
-                Requirement.system_id == system_id,
-                Requirement.status == RequirementStatus.ACTIVE.value,
-                Requirement.deleted_at.is_(None),
+        req_active = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    Requirement.system_id == system_id,
+                    Requirement.status == RequirementStatus.ACTIVE.value,
+                    Requirement.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        script_total = await self._db.scalar(
-            select(func.count()).where(
-                TestScript.system_id == system_id,
-                TestScript.deleted_at.is_(None),
+        script_total = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestScript.system_id == system_id,
+                    TestScript.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        script_approved = await self._db.scalar(
-            select(func.count()).where(
-                TestScript.system_id == system_id,
-                TestScript.status == TestScriptStatus.APPROVED.value,
-                TestScript.deleted_at.is_(None),
+        script_approved = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestScript.system_id == system_id,
+                    TestScript.status == TestScriptStatus.APPROVED.value,
+                    TestScript.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
         coverage = round(script_approved / req_active * 100, 1) if req_active > 0 else 0.0
 
@@ -298,7 +315,6 @@ class SystemService:
 def _is_sm_only(current_user) -> bool:
     """True if user has SYSTEM_MANAGER role but NO admin-level role."""
     role_values = {r.role for r in current_user.roles}
-    return (
-        UserRoleEnum.SYSTEM_MANAGER.value in role_values
-        and not role_values.intersection(_ADMIN_ROLES)
+    return UserRoleEnum.SYSTEM_MANAGER.value in role_values and not role_values.intersection(
+        _ADMIN_ROLES
     )

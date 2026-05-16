@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,7 +39,7 @@ class AgentRun(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
 
-    tool_calls: Mapped[list["AgentToolCall"]] = relationship(
+    tool_calls: Mapped[list[AgentToolCall]] = relationship(
         "AgentToolCall", back_populates="agent_run"
     )
 
@@ -57,7 +57,7 @@ class AgentToolCall(Base, UUIDPrimaryKeyMixin):
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     called_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
 
-    agent_run: Mapped["AgentRun"] = relationship("AgentRun", back_populates="tool_calls")
+    agent_run: Mapped[AgentRun] = relationship("AgentRun", back_populates="tool_calls")
 
 
 class CompanyTokenUsage(Base, UUIDPrimaryKeyMixin):

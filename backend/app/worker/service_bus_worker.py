@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import signal
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
@@ -48,12 +48,14 @@ async def publish_agent_job(
     settings = get_settings()
     from azure.servicebus import ServiceBusMessage
 
-    payload = json.dumps({
-        "run_id": str(run_id),
-        "agent_type": agent_type,
-        "system_id": str(system_id) if system_id else None,
-        "script_id": str(script_id) if script_id else None,
-    })
+    payload = json.dumps(
+        {
+            "run_id": str(run_id),
+            "agent_type": agent_type,
+            "system_id": str(system_id) if system_id else None,
+            "script_id": str(script_id) if script_id else None,
+        }
+    )
     async with ServiceBusClient.from_connection_string(
         settings.azure_service_bus_connection_string
     ) as client:
@@ -68,7 +70,7 @@ async def publish_agent_job(
 async def _load_current_user(
     db: AsyncSession,
     user_id: UUID,
-) -> "CurrentUser | None":
+) -> CurrentUser | None:
     """
     Build a CurrentUser for worker context (no HTTP request available).
     Returns None if the user no longer exists.
@@ -82,7 +84,7 @@ async def _load_current_user(
         log.warning("worker.user_not_found", user_id=str(user_id))
         return None
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     result = await db.execute(
         select(UserRole).where(
             UserRole.user_id == user_id,
@@ -91,12 +93,12 @@ async def _load_current_user(
     )
     roles = list(result.scalars().all())
 
-    accessible_company_ids: list[UUID] = list({
-        r.company_id for r in roles if r.company_id is not None
-    })
-    accessible_system_ids: list[UUID] = list({
-        r.system_id for r in roles if r.system_id is not None
-    })
+    accessible_company_ids: list[UUID] = list(
+        {r.company_id for r in roles if r.company_id is not None}
+    )
+    accessible_system_ids: list[UUID] = list(
+        {r.system_id for r in roles if r.system_id is not None}
+    )
 
     return CurrentUser(
         user=user,
@@ -160,7 +162,7 @@ async def _process_message(message: ServiceBusReceivedMessage) -> None:
             log.error("worker.unknown_agent_type", agent_type=agent_type, error=str(exc))
             run.status = AgentRunStatus.FAILED.value
             run.error_message = str(exc)
-            run.completed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            run.completed_at = datetime.now(UTC).replace(tzinfo=None)
             await db.flush()
             await db.commit()
             return
@@ -169,10 +171,8 @@ async def _process_message(message: ServiceBusReceivedMessage) -> None:
             await agent.execute()
             await db.commit()
             log.info("worker.run_completed", run_id=run_id_str, agent_type=agent_type)
-        except Exception as exc:
-            log.exception(
-                "worker.run_failed", run_id=run_id_str, agent_type=agent_type
-            )
+        except Exception:
+            log.exception("worker.run_failed", run_id=run_id_str, agent_type=agent_type)
             # execute() already sets run.status = FAILED; just commit.
             try:
                 await db.commit()
@@ -184,19 +184,21 @@ def _build_agent(
     agent_type: str,
     run: AgentRun,
     db: AsyncSession,
-    current_user: "CurrentUser | None",
+    current_user: CurrentUser | None,
     config: dict,
-) -> "BaseAgent":
-    from app.agents.base import BaseAgent
+) -> BaseAgent:
 
     if agent_type == "crawl":
         from app.agents.crawl_agent import CrawlAgent
+
         return CrawlAgent(run=run, db=db, current_user=current_user, config=config)
     elif agent_type == "generation":
         from app.agents.generation_agent import GenerationAgent
+
         return GenerationAgent(run=run, db=db, current_user=current_user, config=config)
     elif agent_type == "execution":
         from app.agents.execution_agent import ExecutionAgent
+
         return ExecutionAgent(run=run, db=db, current_user=current_user, config=config)
     else:
         raise ValueError(f"Unknown agent type: {agent_type!r}")
@@ -210,6 +212,7 @@ def _install_sigterm_handler() -> None:
     Register SIGTERM and SIGINT handlers that set _shutdown_event so the worker
     drains in-flight tasks before exiting.
     """
+
     def _handle(signum: int, frame: object) -> None:  # noqa: ARG001
         log.info("worker.shutdown_signal_received", signal=signum)
         _shutdown_event.set()
@@ -297,9 +300,7 @@ async def worker_loop() -> None:
                     log.info("worker.shutting_down_no_new_messages")
                     break
 
-                task = asyncio.create_task(
-                    _process_with_semaphore(message, receiver)
-                )
+                task = asyncio.create_task(_process_with_semaphore(message, receiver))
                 pending_tasks.add(task)
                 task.add_done_callback(pending_tasks.discard)
 

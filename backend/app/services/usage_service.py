@@ -8,10 +8,11 @@ Plan-tier defaults (used when no CompanyPlan row exists):
   pro         5 000 000      200          20        50
   enterprise  unlimited      unlimited    unlimited unlimited
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -27,6 +28,7 @@ log = structlog.get_logger(__name__)
 
 
 # ── Plan-tier defaults ────────────────────────────────────────────────────────
+
 
 @dataclass
 class PlanDefaults:
@@ -68,15 +70,16 @@ _TIER_DEFAULTS: dict[str, PlanDefaults] = {
 
 # ── Response shapes ───────────────────────────────────────────────────────────
 
+
 @dataclass
 class QuotaStatus:
     plan_tier: str
     # Monthly token quota
     tokens_used: int
     tokens_limit: int | None
-    tokens_pct: float | None          # 0–100, None if unlimited
-    tokens_warning: bool              # > 80 %
-    tokens_exceeded: bool             # >= 100 %
+    tokens_pct: float | None  # 0–100, None if unlimited
+    tokens_warning: bool  # > 80 %
+    tokens_exceeded: bool  # >= 100 %
     # Monthly run quota
     runs_used: int
     runs_limit: int | None
@@ -103,6 +106,7 @@ class MonthlyUsageRow:
 
 
 # ── Service ───────────────────────────────────────────────────────────────────
+
 
 class UsageService:
     def __init__(self, db: AsyncSession) -> None:
@@ -137,15 +141,9 @@ class UsageService:
                 else defaults.monthly_agent_run_limit
             ),
             max_systems=(
-                plan.max_systems
-                if plan.max_systems is not None
-                else defaults.max_systems
+                plan.max_systems if plan.max_systems is not None else defaults.max_systems
             ),
-            max_users=(
-                plan.max_users
-                if plan.max_users is not None
-                else defaults.max_users
-            ),
+            max_users=(plan.max_users if plan.max_users is not None else defaults.max_users),
             max_concurrent_agents=(
                 plan.max_concurrent_agents
                 if plan.max_concurrent_agents is not None
@@ -159,7 +157,7 @@ class UsageService:
         plan = await self.get_plan(company_id)
         limits = self._effective_limits(plan)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0, tzinfo=None)
 
         # Token usage from company_token_usage (daily roll-ups)
@@ -217,9 +215,7 @@ class UsageService:
 
     # ── Monthly history ───────────────────────────────────────────────────────
 
-    async def get_usage_history(
-        self, company_id: UUID, months: int = 6
-    ) -> list[MonthlyUsageRow]:
+    async def get_usage_history(self, company_id: UUID, months: int = 6) -> list[MonthlyUsageRow]:
         """Return up to `months` calendar months of token + run data."""
         # Token roll-ups
         token_rows = await self._db.execute(

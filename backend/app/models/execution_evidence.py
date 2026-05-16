@@ -2,27 +2,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
-from app.models.enums import ExecutionStatus, StepOutcome
-
-if TYPE_CHECKING:
-    from app.models.test_result import TestResult
-    from app.models.agent_run import AgentRun
-    from app.models.test_script import TestScript
+from app.models.enums import ExecutionStatus
 
 
 class ExecutionRun(Base, UUIDPrimaryKeyMixin):
     """AI-agent execution of a test script — generates per-step evidence."""
+
     __tablename__ = "execution_runs"
-    __table_args__ = (
-        Index("ix_execution_runs_company_created", "company_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_execution_runs_company_created", "company_id", "created_at"),)
 
     test_result_id: Mapped[uuid.UUID | None] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_results.id")
@@ -51,7 +44,7 @@ class ExecutionRun(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=False), server_default="GETUTCDATE()", nullable=False
     )
 
-    step_results: Mapped[list["ExecutionStepResult"]] = relationship(
+    step_results: Mapped[list[ExecutionStepResult]] = relationship(
         "ExecutionStepResult", back_populates="execution_run"
     )
 
@@ -80,4 +73,6 @@ class ExecutionStepResult(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=False), server_default="GETUTCDATE()", nullable=False
     )
 
-    execution_run: Mapped["ExecutionRun"] = relationship("ExecutionRun", back_populates="step_results")
+    execution_run: Mapped[ExecutionRun] = relationship(
+        "ExecutionRun", back_populates="step_results"
+    )

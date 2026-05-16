@@ -1,7 +1,8 @@
 """Report service — coverage-by-domain, execution history, cycle summary, company overview, AI usage."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import structlog
@@ -12,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.agent_run import AgentRun, CompanyTokenUsage
 from app.models.enums import (
     AgentType,
-    RequirementStatus,
     TestAssignmentStatus,
     TestCycleStatus,
     TestScriptStatus,
@@ -149,10 +149,7 @@ class ReportService:
             row.business_domain: row.approved_count for row in approved_rows
         }
 
-        all_domains: set[str | None] = (
-            set(req_by_domain.keys())
-            | set(scripts_by_domain.keys())
-        )
+        all_domains: set[str | None] = set(req_by_domain.keys()) | set(scripts_by_domain.keys())
 
         breakdown = []
         for domain in sorted(all_domains, key=lambda d: d or ""):
@@ -160,13 +157,15 @@ class ReportService:
             script_count = scripts_by_domain.get(domain, 0)
             approved = approved_by_domain.get(domain, 0)
             coverage_pct = round(approved / req_count * 100, 1) if req_count > 0 else 0.0
-            breakdown.append({
-                "domain": domain,
-                "requirement_count": req_count,
-                "script_count": script_count,
-                "approved_script_count": approved,
-                "coverage_pct": coverage_pct,
-            })
+            breakdown.append(
+                {
+                    "domain": domain,
+                    "requirement_count": req_count,
+                    "script_count": script_count,
+                    "approved_script_count": approved,
+                    "coverage_pct": coverage_pct,
+                }
+            )
 
         return {
             "system_id": str(system_id),
@@ -183,7 +182,7 @@ class ReportService:
         Recent AgentRun execution records for a system.
         Returns the most recent `limit` runs within the last `days` days.
         """
-        since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+        since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
         result = await self._db.execute(
             select(AgentRun)
             .where(
@@ -202,7 +201,9 @@ class ReportService:
                     "id": str(r.id),
                     "status": r.status,
                     "trigger_type": r.trigger_type,
-                    "triggered_by_user_id": str(r.triggered_by_user_id) if r.triggered_by_user_id else None,
+                    "triggered_by_user_id": str(r.triggered_by_user_id)
+                    if r.triggered_by_user_id
+                    else None,
                     "started_at": r.started_at.isoformat() if r.started_at else None,
                     "completed_at": r.completed_at.isoformat() if r.completed_at else None,
                     "prompt_tokens": r.prompt_tokens,
@@ -273,44 +274,61 @@ class ReportService:
                 detail="Company not found",
             )
 
-        system_count = await self._db.scalar(
-            select(func.count()).where(
-                System.company_id == company_id,
-                System.is_deleted == False,  # noqa: E712
+        system_count = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    System.company_id == company_id,
+                    System.is_deleted == False,  # noqa: E712
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        req_count = await self._db.scalar(
-            select(func.count()).where(
-                Requirement.company_id == company_id,
-                Requirement.deleted_at.is_(None),
+        req_count = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    Requirement.company_id == company_id,
+                    Requirement.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        script_count = await self._db.scalar(
-            select(func.count()).where(
-                TestScript.company_id == company_id,
-                TestScript.deleted_at.is_(None),
+        script_count = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestScript.company_id == company_id,
+                    TestScript.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        approved_script_count = await self._db.scalar(
-            select(func.count()).where(
-                TestScript.company_id == company_id,
-                TestScript.status == TestScriptStatus.APPROVED.value,
-                TestScript.deleted_at.is_(None),
+        approved_script_count = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestScript.company_id == company_id,
+                    TestScript.status == TestScriptStatus.APPROVED.value,
+                    TestScript.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
-        active_cycle_count = await self._db.scalar(
-            select(func.count()).where(
-                TestCycle.company_id == company_id,
-                TestCycle.status.in_([
-                    TestCycleStatus.PLANNED.value,
-                    TestCycleStatus.IN_PROGRESS.value,
-                ]),
+        active_cycle_count = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestCycle.company_id == company_id,
+                    TestCycle.status.in_(
+                        [
+                            TestCycleStatus.PLANNED.value,
+                            TestCycleStatus.IN_PROGRESS.value,
+                        ]
+                    ),
+                )
             )
-        ) or 0
+            or 0
+        )
 
         return {
             "company_id": str(company_id),
@@ -364,12 +382,14 @@ class ReportService:
             c = int(row.completion_tokens or 0)
             total_prompt += p
             total_completion += c
-            breakdown.append({
-                "agent_type": row.agent_type,
-                "prompt_tokens": p,
-                "completion_tokens": c,
-                "total_tokens": p + c,
-            })
+            breakdown.append(
+                {
+                    "agent_type": row.agent_type,
+                    "prompt_tokens": p,
+                    "completion_tokens": c,
+                    "total_tokens": p + c,
+                }
+            )
 
         return {
             "company_id": str(company_id),

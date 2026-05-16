@@ -1,18 +1,38 @@
 """Cron expression validation, scheduling, and human-readable description."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
 
 import pytz
-from croniter import CroniterBadCronError, croniter
+from croniter import croniter
 
 # Minimum allowed interval between firings (15 minutes per spec)
 _MIN_INTERVAL_MINUTES: Final = 15
-_WEEKDAY_NAMES: Final = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+_WEEKDAY_NAMES: Final = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+]
 _MONTH_NAMES: Final = [
-    "", "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 
 
@@ -31,7 +51,7 @@ class CronParser:
         if not self.validate(expression):
             return False
         try:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             cron = croniter(expression, now)
             t1: datetime = cron.get_next(datetime)
             t2: datetime = cron.get_next(datetime)
@@ -44,7 +64,7 @@ class CronParser:
         """
         Calculate the next UTC fire time (naive, no tzinfo) for a cron expression.
         """
-        base = after or datetime.now(timezone.utc)
+        base = after or datetime.now(UTC)
         # Normalise to UTC-aware
         if base.tzinfo is None:
             base = pytz.utc.localize(base)

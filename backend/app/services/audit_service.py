@@ -19,12 +19,13 @@ Usage inside a FastAPI route::
 
 All exceptions are swallowed so audit failures never break business logic.
 """
+
 from __future__ import annotations
 
-import structlog
-from uuid import UUID
 from typing import Any
+from uuid import UUID
 
+import structlog
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession

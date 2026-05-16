@@ -10,7 +10,7 @@ from app.auth.permissions import (
     any_authenticated,
     require_system_access,
 )
-from app.dependencies import get_db, get_current_user_id, get_current_company_id
+from app.dependencies import get_current_company_id, get_current_user_id, get_db
 from app.schemas.scheduled_job import (
     ScheduledJobCreate,
     ScheduledJobRead,
@@ -23,6 +23,7 @@ router = APIRouter(tags=["scheduler"])
 
 
 # ── List jobs for a system ────────────────────────────────────────────────────
+
 
 @router.get(
     "/systems/{system_id}/schedules",
@@ -40,6 +41,7 @@ async def list_schedules(
 
 
 # ── Create a scheduled job ────────────────────────────────────────────────────
+
 
 @router.post(
     "/systems/{system_id}/schedules",
@@ -66,6 +68,7 @@ async def create_schedule(
 
 # ── Get a single scheduled job ────────────────────────────────────────────────
 
+
 @router.get(
     "/systems/{system_id}/schedules/{job_id}",
     response_model=ScheduledJobRead,
@@ -81,6 +84,7 @@ async def get_schedule(
 
 
 # ── Update a scheduled job ────────────────────────────────────────────────────
+
 
 @router.patch(
     "/systems/{system_id}/schedules/{job_id}",
@@ -99,6 +103,7 @@ async def update_schedule(
 
 # ── Deactivate (soft-delete) a scheduled job ──────────────────────────────────
 
+
 @router.delete(
     "/systems/{system_id}/schedules/{job_id}",
     response_model=ScheduledJobRead,
@@ -115,6 +120,7 @@ async def deactivate_schedule(
 
 # ── Run history ───────────────────────────────────────────────────────────────
 
+
 @router.get(
     "/systems/{system_id}/schedules/{job_id}/runs",
     response_model=list[ScheduledJobRunRead],
@@ -130,6 +136,7 @@ async def list_schedule_runs(
 
 
 # ── Manual trigger ────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/systems/{system_id}/schedules/{job_id}/trigger-now",
@@ -148,16 +155,34 @@ async def trigger_schedule_now(
 
 # ── Legacy routes (old /scheduled_jobs prefix, kept for backwards compat) ─────
 
-@router.get("/scheduled_jobs", response_model=list[ScheduledJobRead], dependencies=[any_authenticated], include_in_schema=False)
+
+@router.get(
+    "/scheduled_jobs",
+    response_model=list[ScheduledJobRead],
+    dependencies=[any_authenticated],
+    include_in_schema=False,
+)
 async def list_jobs_legacy(db: AsyncSession = Depends(get_db)) -> list[ScheduledJobRead]:
     return await SchedulerService(db).list_jobs()
 
 
-@router.get("/scheduled_jobs/{job_id}", response_model=ScheduledJobRead, dependencies=[any_authenticated], include_in_schema=False)
+@router.get(
+    "/scheduled_jobs/{job_id}",
+    response_model=ScheduledJobRead,
+    dependencies=[any_authenticated],
+    include_in_schema=False,
+)
 async def get_job_legacy(job_id: UUID, db: AsyncSession = Depends(get_db)) -> ScheduledJobRead:
     return await SchedulerService(db).get_job(job_id)
 
 
-@router.get("/scheduled_jobs/{job_id}/runs", response_model=list[ScheduledJobRunRead], dependencies=[any_authenticated], include_in_schema=False)
-async def list_runs_legacy(job_id: UUID, db: AsyncSession = Depends(get_db)) -> list[ScheduledJobRunRead]:
+@router.get(
+    "/scheduled_jobs/{job_id}/runs",
+    response_model=list[ScheduledJobRunRead],
+    dependencies=[any_authenticated],
+    include_in_schema=False,
+)
+async def list_runs_legacy(
+    job_id: UUID, db: AsyncSession = Depends(get_db)
+) -> list[ScheduledJobRunRead]:
     return await SchedulerService(db).list_runs(job_id)

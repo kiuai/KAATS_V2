@@ -5,11 +5,12 @@ GET  /notifications/count        — unread count
 PATCH /notifications/{id}/read   — mark single as read
 PATCH /notifications/read-all    — mark all as read
 """
+
 from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 

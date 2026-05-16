@@ -1,8 +1,10 @@
 """Requirement service — filtered list, import, quality check, generate-script dispatch."""
+
 from __future__ import annotations
 
 import io
 import time
+from datetime import UTC
 from uuid import UUID
 
 import structlog
@@ -10,9 +12,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import RequirementStatus, TestScriptStatus
 from app.models.requirement import Requirement
-from app.models.enums import RequirementStatus, TestScriptStatus, UserRoleEnum
-from app.schemas.common import Page, encode_cursor, decode_cursor
+from app.schemas.common import Page, decode_cursor, encode_cursor
 from app.schemas.requirement import (
     QualityCheckResult,
     RequirementCreate,
@@ -178,19 +180,25 @@ class RequirementService:
         from app.models.test_script import TestScript
 
         req = await self._load(requirement_id)
-        total = await self._db.scalar(
-            select(func.count()).where(
-                TestScript.requirement_id == requirement_id,
-                TestScript.deleted_at.is_(None),
+        total = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestScript.requirement_id == requirement_id,
+                    TestScript.deleted_at.is_(None),
+                )
             )
-        ) or 0
-        approved = await self._db.scalar(
-            select(func.count()).where(
-                TestScript.requirement_id == requirement_id,
-                TestScript.status == TestScriptStatus.APPROVED.value,
-                TestScript.deleted_at.is_(None),
+            or 0
+        )
+        approved = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestScript.requirement_id == requirement_id,
+                    TestScript.status == TestScriptStatus.APPROVED.value,
+                    TestScript.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
 
         out = RequirementWithScripts.model_validate(req)
         out.script_count = total
@@ -224,18 +232,22 @@ class RequirementService:
         """
         Soft-delete. Raises 409 if there are APPROVED test scripts linked.
         """
+        from datetime import datetime
+
         from app.models.test_script import TestScript
-        from datetime import datetime, timezone
 
         req = await self._load(requirement_id)
 
-        approved_count = await self._db.scalar(
-            select(func.count()).where(
-                TestScript.requirement_id == requirement_id,
-                TestScript.status == TestScriptStatus.APPROVED.value,
-                TestScript.deleted_at.is_(None),
+        approved_count = (
+            await self._db.scalar(
+                select(func.count()).where(
+                    TestScript.requirement_id == requirement_id,
+                    TestScript.status == TestScriptStatus.APPROVED.value,
+                    TestScript.deleted_at.is_(None),
+                )
             )
-        ) or 0
+            or 0
+        )
         if approved_count > 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -245,7 +257,7 @@ class RequirementService:
                 ),
             )
 
-        req.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        req.deleted_at = datetime.now(UTC).replace(tzinfo=None)
         await self._db.flush()
 
     # ── Status transitions ────────────────────────────────────────────────────
@@ -328,6 +340,7 @@ class RequirementService:
 
 # ── File parsing ──────────────────────────────────────────────────────────────
 
+
 def parse_requirement_file(
     filename: str,
     content: bytes,
@@ -361,11 +374,14 @@ def _parse_text(content: bytes) -> list[RequirementImportPreview]:
         title = lines[0][:500]
         description = " ".join(lines[1:]) if len(lines) > 1 else title
         results.append(RequirementImportPreview(title=title, description=description))
-    return results or [RequirementImportPreview(title="Imported requirement", description=text[:1000])]
+    return results or [
+        RequirementImportPreview(title="Imported requirement", description=text[:1000])
+    ]
 
 
 def _parse_csv(content: bytes) -> list[RequirementImportPreview]:
     import csv
+
     text = content.decode("utf-8", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
     results: list[RequirementImportPreview] = []
@@ -375,17 +391,20 @@ def _parse_csv(content: bytes) -> list[RequirementImportPreview]:
         domain = row.get("business_domain") or row.get("domain") or None
         priority = row.get("priority") or "medium"
         if title:
-            results.append(RequirementImportPreview(
-                title=title[:500],
-                description=desc,
-                business_domain=domain,
-                priority=priority.lower(),
-            ))
+            results.append(
+                RequirementImportPreview(
+                    title=title[:500],
+                    description=desc,
+                    business_domain=domain,
+                    priority=priority.lower(),
+                )
+            )
     return results
 
 
 def _parse_json(content: bytes) -> list[RequirementImportPreview]:
     import json
+
     data = json.loads(content)
     if isinstance(data, dict):
         data = data.get("requirements", data.get("items", [data]))
@@ -396,19 +415,22 @@ def _parse_json(content: bytes) -> list[RequirementImportPreview]:
         elif isinstance(item, dict):
             title = item.get("title") or item.get("name") or ""
             desc = item.get("description") or item.get("desc") or title
-            results.append(RequirementImportPreview(
-                title=title[:500],
-                description=desc,
-                business_domain=item.get("business_domain"),
-                priority=item.get("priority", "medium"),
-                tags=item.get("tags"),
-            ))
+            results.append(
+                RequirementImportPreview(
+                    title=title[:500],
+                    description=desc,
+                    business_domain=item.get("business_domain"),
+                    priority=item.get("priority", "medium"),
+                    tags=item.get("tags"),
+                )
+            )
     return results
 
 
 def _parse_docx(content: bytes) -> list[RequirementImportPreview]:
     try:
         from docx import Document  # type: ignore[import]
+
         doc = Document(io.BytesIO(content))
         paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
         if not paragraphs:
@@ -420,18 +442,25 @@ def _parse_docx(content: bytes) -> list[RequirementImportPreview]:
         for para in paragraphs:
             if len(para) < 150 and not para.endswith("."):
                 if current_title:
-                    results.append(RequirementImportPreview(
-                        title=current_title, description=" ".join(current_desc_lines) or current_title
-                    ))
+                    results.append(
+                        RequirementImportPreview(
+                            title=current_title,
+                            description=" ".join(current_desc_lines) or current_title,
+                        )
+                    )
                 current_title = para[:500]
                 current_desc_lines = []
             else:
                 current_desc_lines.append(para)
         if current_title:
-            results.append(RequirementImportPreview(
-                title=current_title, description=" ".join(current_desc_lines) or current_title
-            ))
-        return results or [RequirementImportPreview(title=paragraphs[0][:500], description=" ".join(paragraphs))]
+            results.append(
+                RequirementImportPreview(
+                    title=current_title, description=" ".join(current_desc_lines) or current_title
+                )
+            )
+        return results or [
+            RequirementImportPreview(title=paragraphs[0][:500], description=" ".join(paragraphs))
+        ]
     except ImportError:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -442,6 +471,7 @@ def _parse_docx(content: bytes) -> list[RequirementImportPreview]:
 def _parse_pdf(content: bytes) -> list[RequirementImportPreview]:
     try:
         import pypdf  # type: ignore[import]
+
         reader = pypdf.PdfReader(io.BytesIO(content))
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         return _parse_text(text.encode())
@@ -453,6 +483,7 @@ def _parse_pdf(content: bytes) -> list[RequirementImportPreview]:
 
 
 # ── Quality scoring ───────────────────────────────────────────────────────────
+
 
 def _compute_quality(title: str, description: str) -> QualityCheckResult:
     score = 100
@@ -475,8 +506,20 @@ def _compute_quality(title: str, description: str) -> QualityCheckResult:
         suggestions.append("Description could be more detailed")
 
     # Testability indicators
-    testable = ["must", "shall", "should", "verify", "when", "given", "if", "then",
-                "assert", "expect", "ensure", "validate"]
+    testable = [
+        "must",
+        "shall",
+        "should",
+        "verify",
+        "when",
+        "given",
+        "if",
+        "then",
+        "assert",
+        "expect",
+        "ensure",
+        "validate",
+    ]
     if not any(w in description.lower() for w in testable):
         score -= 15
         suggestions.append("Add testability criteria (must/shall/when/then/verify)")

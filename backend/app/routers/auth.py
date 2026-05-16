@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -19,7 +19,6 @@ from app.auth.permissions import any_authenticated
 from app.config import get_settings
 from app.dependencies import get_db
 from app.middleware.rate_limit import limiter
-from app.models.role import UserRole
 from app.models.tenant import Company
 from app.services.audit_service import AuditService
 
@@ -102,9 +101,7 @@ async def exchange_token(request: Request, body: TokenRequest) -> TokenResponse:
     try:
         result = await exchange_code_for_token(body.code, body.redirect_uri)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
     return TokenResponse(
         access_token=result["access_token"],
@@ -134,7 +131,7 @@ async def auth_callback(
         from app.models.tenant import Company, Enterprise
         from app.models.user import User
 
-        now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
+        now_dt = datetime.now(UTC).replace(tzinfo=None)
 
         # Ensure dev Enterprise exists.
         enterprise = await db.get(Enterprise, _DEV_ENTERPRISE_ID)
@@ -179,7 +176,7 @@ async def auth_callback(
             dev_user.last_login_at = now_dt
         await db.commit()
 
-        now = int(datetime.now(timezone.utc).timestamp())
+        now = int(datetime.now(UTC).timestamp())
         claims = {
             "sub": _DEV_OID,
             "oid": _DEV_OID,

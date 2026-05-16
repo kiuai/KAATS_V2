@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -42,7 +42,9 @@ class SchedulerService:
             body.schedule_type, body.cron_expression, body.run_at, body.timezone
         )
         at_val = body.agent_type.value if hasattr(body.agent_type, "value") else body.agent_type
-        st_val = body.schedule_type.value if hasattr(body.schedule_type, "value") else body.schedule_type
+        st_val = (
+            body.schedule_type.value if hasattr(body.schedule_type, "value") else body.schedule_type
+        )
 
         job = ScheduledJob(
             company_id=company_id,
@@ -101,7 +103,9 @@ class SchedulerService:
         await self._db.flush()
         return ScheduledJobRead.model_validate(job)
 
-    async def list_scheduled_jobs(self, system_id: UUID, company_id: UUID) -> list[ScheduledJobRead]:
+    async def list_scheduled_jobs(
+        self, system_id: UUID, company_id: UUID
+    ) -> list[ScheduledJobRead]:
         result = await self._db.execute(
             select(ScheduledJob)
             .where(
@@ -125,13 +129,14 @@ class SchedulerService:
     async def trigger_now(self, job_id: UUID, system_id: UUID) -> ScheduledJobRunRead:
         job = await self._get_or_404(job_id, system_id)
         from app.scheduler.job_dispatcher import dispatch_scheduled_job
+
         run = await dispatch_scheduled_job(self._db, job)
         return ScheduledJobRunRead.model_validate(run)
 
     # ── Evaluator-facing methods ──────────────────────────────────────────────
 
     async def get_due_jobs(self) -> list[ScheduledJob]:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         result = await self._db.execute(
             select(ScheduledJob)
             .where(
@@ -145,7 +150,7 @@ class SchedulerService:
         return list(result.scalars().all())
 
     async def record_job_triggered(self, job: ScheduledJob, agent_run_id: UUID) -> ScheduledJobRun:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         run = ScheduledJobRun(
             job_id=job.id,
             agent_run_id=agent_run_id,
@@ -169,13 +174,17 @@ class SchedulerService:
         return [ScheduledJobRead.model_validate(j) for j in result.scalars().all()]
 
     async def create_job(self, body: ScheduledJobCreate, created_by: UUID) -> ScheduledJobRead:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         cron = body.cron_expression or "0 0 * * *"
         tz = body.timezone or "UTC"
         next_run = compute_next_run(cron, tz, now)
         raw = body.model_dump()
-        raw["agent_type"] = body.agent_type.value if hasattr(body.agent_type, "value") else body.agent_type
-        raw["schedule_type"] = body.schedule_type.value if hasattr(body.schedule_type, "value") else body.schedule_type
+        raw["agent_type"] = (
+            body.agent_type.value if hasattr(body.agent_type, "value") else body.agent_type
+        )
+        raw["schedule_type"] = (
+            body.schedule_type.value if hasattr(body.schedule_type, "value") else body.schedule_type
+        )
         job = ScheduledJob(**raw, created_by=created_by, next_run_at=next_run)
         self._db.add(job)
         await self._db.flush()
@@ -271,8 +280,8 @@ class SchedulerService:
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                     detail="run_at is required for ONE_SHOT jobs",
                 )
-            now = datetime.now(timezone.utc)
-            run_at_aware = run_at if run_at.tzinfo else run_at.replace(tzinfo=timezone.utc)
+            now = datetime.now(UTC)
+            run_at_aware = run_at if run_at.tzinfo else run_at.replace(tzinfo=UTC)
             if run_at_aware <= now:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -319,7 +328,7 @@ class SchedulerService:
         timezone_str: str = "UTC",
     ) -> datetime | None:
         st = schedule_type.value if hasattr(schedule_type, "value") else schedule_type
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
 
         if st == ScheduleType.RECURRING.value and cron_expression:
             return compute_next_run(cron_expression, timezone_str or "UTC", now)

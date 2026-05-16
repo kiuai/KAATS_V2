@@ -3,6 +3,7 @@
 One row per company.  Absent row → Free tier defaults (see UsageService).
 Limits of None mean unlimited (Enterprise tier).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -22,9 +23,7 @@ class CompanyPlan(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     """Quota configuration for a single company tenant."""
 
     __tablename__ = "company_plans"
-    __table_args__ = (
-        UniqueConstraint("company_id", name="uq_company_plans_company"),
-    )
+    __table_args__ = (UniqueConstraint("company_id", name="uq_company_plans_company"),)
 
     company_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("companies.id"), nullable=False
@@ -47,4 +46,4 @@ class CompanyPlan(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     # ── Audit ─────────────────────────────────────────────────────────────────
     override_reason: Mapped[str | None] = mapped_column(Text)
 
-    company: Mapped["Company"] = relationship("Company", foreign_keys=[company_id])
+    company: Mapped[Company] = relationship("Company", foreign_keys=[company_id])

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, JSON, String, Text
+from sqlalchemy import JSON, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,8 +47,8 @@ class Requirement(Base, UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin):
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("users.id")
     )
 
-    system: Mapped["System"] = relationship("System", back_populates="requirements")
-    test_scripts: Mapped[list["TestScript"]] = relationship(
+    system: Mapped[System] = relationship("System", back_populates="requirements")
+    test_scripts: Mapped[list[TestScript]] = relationship(
         "TestScript", back_populates="requirement"
     )
-    created_by_user: Mapped["User | None"] = relationship("User", foreign_keys=[created_by])
+    created_by_user: Mapped[User | None] = relationship("User", foreign_keys=[created_by])

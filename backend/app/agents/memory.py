@@ -49,7 +49,7 @@ class WorkingMemory:
         self._store.clear()
 
     @classmethod
-    def from_snapshot(cls, data: dict[str, Any]) -> "WorkingMemory":
+    def from_snapshot(cls, data: dict[str, Any]) -> WorkingMemory:
         return cls(initial=data)
 
 

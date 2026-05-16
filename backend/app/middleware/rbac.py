@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -13,16 +13,18 @@ log = structlog.get_logger(__name__)
 # ── Role predicates (used by route handlers for in-handler checks) ────────────
 
 
-ALL_ROLES = frozenset({
-    "global_admin",
-    "enterprise_admin",
-    "company_admin",
-    "system_manager",
-    "validation_lead",
-    "qa",
-    "validation_tester",
-    "bpo",
-})
+ALL_ROLES = frozenset(
+    {
+        "global_admin",
+        "enterprise_admin",
+        "company_admin",
+        "system_manager",
+        "validation_lead",
+        "qa",
+        "validation_tester",
+        "bpo",
+    }
+)
 
 
 def assert_roles(request: Request, *required: str) -> None:
@@ -58,16 +60,18 @@ def get_correlation_id(request: Request) -> str:
 # ── Audit logger ─────────────────────────────────────────────────────────────
 
 # Actions that must be audit-logged (regardless of outcome).
-AUDITED_ACTIONS: frozenset[str] = frozenset({
-    "SCRIPT_APPROVE",
-    "SCRIPT_DELETE",
-    "USER_ASSIGN_ROLE",
-    "AGENT_EXECUTE",
-    "SCHEDULE_CREATE",
-    "ADMIN_GLOBAL",
-    "ADMIN_ENTERPRISE",
-    "ADMIN_COMPANY",
-})
+AUDITED_ACTIONS: frozenset[str] = frozenset(
+    {
+        "SCRIPT_APPROVE",
+        "SCRIPT_DELETE",
+        "USER_ASSIGN_ROLE",
+        "AGENT_EXECUTE",
+        "SCHEDULE_CREATE",
+        "ADMIN_GLOBAL",
+        "ADMIN_ENTERPRISE",
+        "ADMIN_COMPANY",
+    }
+)
 
 
 class AuditLogger:
@@ -98,9 +102,7 @@ class AuditLogger:
         extra: dict[str, Any] | None = None,
     ) -> None:
         """Fire-and-forget audit event. Failures are logged but not raised."""
-        asyncio.ensure_future(
-            self._write(request, action, resource_id, outcome, extra or {})
-        )
+        asyncio.ensure_future(self._write(request, action, resource_id, outcome, extra or {}))
 
     async def _write(
         self,
@@ -120,7 +122,7 @@ class AuditLogger:
         doc: dict[str, Any] = {
             "id": str(uuid4()),
             "type": "audit_event",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "correlation_id": correlation_id,
             "user_id": str(user_id) if user_id else None,
             "company_id": str(company_id) if company_id else None,

@@ -9,22 +9,21 @@ from sqlalchemy.dialects.mssql import UNIQUEIDENTIFIER
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
-from app.models.enums import TestOutcome
 
 if TYPE_CHECKING:
     from app.models.test_cycle import TestAssignment
-    from app.models.agent_run import AgentRun
     from app.models.user import User
 
 
 class TestResult(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "test_results"
-    __table_args__ = (
-        Index("ix_test_results_company_created", "company_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_test_results_company_created", "company_id", "created_at"),)
 
     assignment_id: Mapped[uuid.UUID] = mapped_column(
-        UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_assignments.id"), nullable=False, index=True
+        UNIQUEIDENTIFIER(as_uuid=True),
+        ForeignKey("test_assignments.id"),
+        nullable=False,
+        index=True,
     )
     test_script_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_scripts.id"), nullable=False
@@ -49,15 +48,13 @@ class TestResult(Base, UUIDPrimaryKeyMixin):
         DateTime(timezone=False), server_default="GETUTCDATE()", nullable=False
     )
 
-    assignment: Mapped["TestAssignment"] = relationship("TestAssignment", back_populates="results")
-    executor: Mapped["User"] = relationship("User")
+    assignment: Mapped[TestAssignment] = relationship("TestAssignment", back_populates="results")
+    executor: Mapped[User] = relationship("User")
 
 
 class EvidenceScreenshot(Base, UUIDPrimaryKeyMixin):
     __tablename__ = "evidence_screenshots"
-    __table_args__ = (
-        Index("ix_evidence_execution_step", "execution_id", "step_number"),
-    )
+    __table_args__ = (Index("ix_evidence_execution_step", "execution_id", "step_number"),)
 
     execution_id: Mapped[uuid.UUID] = mapped_column(
         UNIQUEIDENTIFIER(as_uuid=True), ForeignKey("test_executions.id"), nullable=False, index=True
@@ -92,7 +89,7 @@ class TestStepResult(Base, UUIDPrimaryKeyMixin):
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
     duration_ms: Mapped[int | None] = mapped_column(Integer)
 
-    screenshot: Mapped["EvidenceScreenshot | None"] = relationship(
+    screenshot: Mapped[EvidenceScreenshot | None] = relationship(
         "EvidenceScreenshot",
         primaryjoin="TestStepResult.id == EvidenceScreenshot.step_result_id",
         foreign_keys="[EvidenceScreenshot.step_result_id]",

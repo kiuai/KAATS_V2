@@ -1,4 +1,5 @@
 """User service — company-scoped user management, role assignment with hierarchy."""
+
 from __future__ import annotations
 
 from uuid import UUID
@@ -9,9 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.models.enums import UserRoleEnum
 from app.models.role import UserRole
 from app.models.user import User
-from app.models.enums import UserRoleEnum
 from app.schemas.user import UserCreate, UserRead, UserRoleAssign, UserRoleRead, UserUpdate
 
 log = structlog.get_logger(__name__)
@@ -43,9 +44,7 @@ class UserService:
 
     async def get_user_with_roles(self, user_id: UUID) -> UserRead:
         result = await self._db.execute(
-            select(User)
-            .where(User.id == user_id)
-            .options(selectinload(User.roles))
+            select(User).where(User.id == user_id).options(selectinload(User.roles))
         )
         user = result.scalar_one_or_none()
         if not user:
@@ -130,7 +129,9 @@ class UserService:
         if initial_role:
             role = UserRole(
                 user_id=user.id,
-                role=initial_role.role.value if hasattr(initial_role.role, "value") else initial_role.role,
+                role=initial_role.role.value
+                if hasattr(initial_role.role, "value")
+                else initial_role.role,
                 company_id=initial_role.company_id or company_id,
                 system_id=initial_role.system_id,
                 enterprise_id=initial_role.enterprise_id,
@@ -165,7 +166,7 @@ class UserService:
         user.is_active = False
         await self._db.flush()
 
-    async def deactivate_user(self, user_id: UUID, actor: "CurrentUser") -> None:
+    async def deactivate_user(self, user_id: UUID, actor: CurrentUser) -> None:
         """Deactivate a user. Cannot deactivate yourself."""
         if user_id == actor.user.id:
             raise HTTPException(
@@ -234,7 +235,9 @@ class UserService:
         )
         self._db.add(role)
         await self._db.flush()
-        log.info("user.role_assigned", user_id=str(user_id), role=role_str, granted_by=str(granted_by))
+        log.info(
+            "user.role_assigned", user_id=str(user_id), role=role_str, granted_by=str(granted_by)
+        )
         return UserRoleRead.model_validate(role)
 
     async def revoke_role(self, user_id: UUID, role_id: UUID) -> None:
