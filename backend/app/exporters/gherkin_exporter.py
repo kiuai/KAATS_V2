@@ -15,7 +15,7 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
-def _gherkin_keyword(step: TestStep, used_given: bool, used_when: bool) -> str:
+def _gherkin_keyword(step: TestStep, used_given: bool, used_when: bool) -> str | None:
     """Determine the appropriate Gherkin keyword for a step."""
     if step.step_type in (StepType.NAVIGATE, StepType.WAIT) and not used_given:
         return "Given"

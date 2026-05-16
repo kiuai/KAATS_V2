@@ -69,7 +69,7 @@ async def readiness() -> JSONResponse:
             all_ok = False
         else:
             checks[label] = result
-            if result.get("status") != "ok":
+            if isinstance(result, dict) and result.get("status") != "ok":
                 all_ok = False
 
     duration_ms = round((time.perf_counter() - t0) * 1000)

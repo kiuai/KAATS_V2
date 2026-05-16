@@ -230,7 +230,7 @@ class TestCycleService:
                 detail=f"Cannot assign to a cycle with status '{cycle.status}'",
             )
 
-        created: list[TestAssignmentRead] = []
+        created: list[TestAssignment] = []
         for item in assignments_data:
             # Validate script is APPROVED
             script = await self._db.scalar(

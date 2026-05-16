@@ -149,7 +149,7 @@ class RequirementService:
         default_domain: str | None = None,
     ) -> list[RequirementRead]:
         """Save a list of import previews as Requirement records."""
-        created: list[RequirementRead] = []
+        created: list[Requirement] = []
         for p in previews:
             req = Requirement(
                 system_id=system_id,
