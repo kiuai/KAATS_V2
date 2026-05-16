@@ -78,7 +78,7 @@ jobs:
     env:
       ENVIRONMENT: development
       SECRET_KEY: ci-secret-key-min-32-chars-padding00
-      ALLOWED_ORIGINS: http://localhost:5173
+      ALLOWED_ORIGINS: '["http://localhost:5173"]'
       AZURE_TENANT_ID: 00000000-0000-0000-0000-000000000000
       AZURE_CLIENT_ID: 00000000-0000-0000-0000-000000000001
       AZURE_CLIENT_SECRET: ci-not-used
@@ -89,6 +89,7 @@ jobs:
       AZURE_SQL_DATABASE: kaats_test
       AZURE_SQL_USERNAME: sa
       AZURE_SQL_PASSWORD: KaatsTestPass!2026
+      DATABASE_URL: "mssql+pyodbc://sa:KaatsTestPass%212026@localhost,1433/kaats_test?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes&Encrypt=yes"
       AZURE_COSMOS_ENDPOINT: https://fake.documents.azure.com:443/
       AZURE_COSMOS_KEY: Y2ktZmFrZS1jb3Ntb3Mta2V5LXBhZGRpbmctcGFkZGluZy1wYWRkaW5nPT0=
       AZURE_COSMOS_DATABASE: kaats_test
