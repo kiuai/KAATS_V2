@@ -240,7 +240,7 @@ class TestTenantIsolation:
             # Dev JWT with no kaats_company_id claim → request.state.company_id = None
             token = _dev_token()
             resp = await client.get(
-                "/api/v1/requirements",
+                "/api/v1/systems",
                 headers={"Authorization": f"Bearer {token}"},
                 # No X-Company-Slug and no kaats_company_id in token
             )
